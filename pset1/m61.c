@@ -5,16 +5,55 @@
 #include <stdio.h>
 #include <inttypes.h>
 
+struct m61_metadata {
+    unsigned long long size;    // number of bytes in allocation
+};
+
+struct m61_statistics global_stats; // ***Should this be initialized?***
+
 void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
-    return malloc(sz);
+    
+    if (sz >= (size_t) -1)
+    {
+        global_stats.nfail++;
+        global_stats.fail_size += sz;
+        return NULL;
+    }
+    
+    struct m61_metadata metadata = {sz};    // ***Is this a clear why to initialize this struct?***
+    struct m61_metadata* ptr = NULL;       // ***Should this be initialized to NULL? (See m61_realloc below)***
+    ptr = malloc(sizeof(struct m61_metadata) + sz);
+    if (!ptr) {
+        global_stats.nfail++;
+        global_stats.fail_size += sz;
+        return ptr;
+    }
+    global_stats.ntotal++;
+    global_stats.nactive++;
+    global_stats.total_size += sz;
+    global_stats.active_size += sz;
+    char* heap_min = (char*) ptr;
+    char* heap_max = (char*) (ptr + sz);
+    if (!global_stats.heap_min || global_stats.heap_min >= heap_min) {
+        global_stats.heap_min = heap_min;
+    }
+
+    if (!global_stats.heap_max || global_stats.heap_max <= heap_max) {
+        global_stats.heap_max = heap_max;
+    }
+    *ptr = metadata;
+    return ptr + sizeof(struct m61_metadata);
 }
 
 void m61_free(void *ptr, const char *file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
-    free(ptr);
+    global_stats.nactive--;
+    struct m61_metadata* new_ptr = (struct m61_metadata*) ptr - sizeof(struct m61_metadata);    // ***Why did I need to cast this?***
+    global_stats.active_size -= new_ptr->size; 
+    free(new_ptr);
 }
 
 void* m61_realloc(void* ptr, size_t sz, const char* file, int line) {
@@ -42,6 +81,10 @@ void m61_getstatistics(struct m61_statistics* stats) {
     // Stub: set all statistics to enormous numbers
     memset(stats, 255, sizeof(struct m61_statistics));
     // Your code here.
+    // Set all statistics to zero
+    bzero(stats, sizeof(struct m61_statistics));
+    // Set all statistics from global statistics variable
+    *stats = global_stats;
 }
 
 void m61_printstatistics(void) {
