@@ -15,27 +15,36 @@ void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
     
-    if (sz >= (size_t) -1)
-    {
+    // Prevent integer overflow: check to make sure sz not greater than 2^32-1
+    if (sz > SIZE_MAX - sizeof(struct m61_statistics)) {
         global_stats.nfail++;
         global_stats.fail_size += sz;
         return NULL;
     }
     
-    struct m61_metadata metadata = {sz};    // ***Is this a clear why to initialize this struct?***
-    struct m61_metadata* ptr = NULL;       // ***Should this be initialized to NULL? (See m61_realloc below)***
+    // Initialize struct to hold metadata (i.e. allocation size)
+    struct m61_metadata metadata = {sz};
+
+    struct m61_metadata* ptr = NULL;
+
+    // Allocate pointer w/ extra space to accommodate metadata
     ptr = malloc(sizeof(struct m61_metadata) + sz);
+
+    // Track failed allocations
     if (!ptr) {
         global_stats.nfail++;
         global_stats.fail_size += sz;
         return ptr;
     }
+
+    // Track other statistics
     global_stats.ntotal++;
     global_stats.nactive++;
     global_stats.total_size += sz;
     global_stats.active_size += sz;
+
     char* heap_min = (char*) ptr;
-    char* heap_max = (char*) (ptr + sz);
+    char* heap_max = (char*) (ptr + sz); // *** Does this actually do what I think it does?***
     if (!global_stats.heap_min || global_stats.heap_min >= heap_min) {
         global_stats.heap_min = heap_min;
     }
@@ -43,15 +52,19 @@ void* m61_malloc(size_t sz, const char* file, int line) {
     if (!global_stats.heap_max || global_stats.heap_max <= heap_max) {
         global_stats.heap_max = heap_max;
     }
+
+    // Store metadata at beginning of allocated pointer
     *ptr = metadata;
-    return ptr + sizeof(struct m61_metadata);
+
+    // Return pointer to requested memory
+    return ptr + 1;
 }
 
 void m61_free(void *ptr, const char *file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
     // Your code here.
     global_stats.nactive--;
-    struct m61_metadata* new_ptr = (struct m61_metadata*) ptr - sizeof(struct m61_metadata);    // ***Why did I need to cast this?***
+    struct m61_metadata* new_ptr = (struct m61_metadata*) ptr - 1;
     global_stats.active_size -= new_ptr->size; 
     free(new_ptr);
 }
@@ -83,6 +96,7 @@ void m61_getstatistics(struct m61_statistics* stats) {
     // Your code here.
     // Set all statistics to zero
     bzero(stats, sizeof(struct m61_statistics));
+    
     // Set all statistics from global statistics variable
     *stats = global_stats;
 }
