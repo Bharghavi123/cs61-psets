@@ -5,6 +5,9 @@
 #include <stdio.h>
 #include <inttypes.h>
 
+// Constant for heavy hitters size
+#define HEAVY_HITTERS_MAX_SIZE 6
+
 struct m61_metadata {
     unsigned long long size;            // number of bytes in allocation
     unsigned long long active_code;     // if equal to 1234 if allocation is not 'active'
@@ -16,6 +19,7 @@ struct m61_metadata {
     int padding;                        // padding to keep struct with 8-bit alignment
 };
 
+// Footer to check for boundary write errors
 typedef struct m61_footer {
     unsigned long long buffer_one;      // 8-byte buffer for overflow
     unsigned long long buffer_two;      // 8-byte buffer for overflow
@@ -26,6 +30,27 @@ struct m61_statistics global_stats;
 
 // Head doubly linked list of struct m61_metadata
 struct m61_metadata* metadata_head = NULL;
+
+// Global Array of Heavy Hitters
+struct m61_metadata heavy_hitters[HEAVY_HITTERS_MAX_SIZE];
+
+// Size of the Heavy Hitters array
+int heavy_hitters_size = 0;
+
+// Sample size for Heavy Hitters
+unsigned long long sample_size = 0;
+
+void bs(struct m61_metadata* array, int n) {
+    for(int i = 0; i < n - 1; i++) {
+        for(int j = 0; j < n - i - 1; j++) {
+            if(array[j].size < array[j+1].size) {
+                struct m61_metadata temp = array[j];
+                array[j] = array[j + 1];
+                array[j + 1] = temp;
+            }
+        }
+    }
+}
 
 void* m61_malloc(size_t sz, const char* file, int line) {
     (void) file, (void) line;   // avoid uninitialized variable warnings
@@ -78,6 +103,31 @@ void* m61_malloc(size_t sz, const char* file, int line) {
     // Store metadata at beginning of allocated pointer
     *ptr = metadata;
 
+    // Randomly sample 1/20 allocations to identify heavy hitters
+    if (drand48() < .05) {
+        int flag = 0;
+        sample_size += metadata.size;
+        // Check if file/line number in array
+        for (int i = 0; i < HEAVY_HITTERS_MAX_SIZE; i++) {
+            if (heavy_hitters[i].file == metadata.file &&
+                heavy_hitters[i].line == metadata.line) {
+                heavy_hitters[i].size += metadata.size;
+                flag = 1;
+            }
+        }
+        // If file/line not present and array not full
+        if (!flag && heavy_hitters_size < HEAVY_HITTERS_MAX_SIZE) {
+            heavy_hitters[heavy_hitters_size] = metadata;
+            heavy_hitters_size++;
+        }
+        // If metadata.size is bigger than last element in array
+        else {
+            if (!flag && heavy_hitters[HEAVY_HITTERS_MAX_SIZE - 1].size < metadata.size)
+                heavy_hitters[HEAVY_HITTERS_MAX_SIZE - 1] = metadata;
+        }
+        bs(heavy_hitters, heavy_hitters_size);
+    }
+
     if (metadata_head) {
         ptr->next = metadata_head;
         metadata_head->prev = ptr;
@@ -110,7 +160,7 @@ void m61_free(void *ptr, const char *file, int line) {
                     }
                     abort();
                 }
-
+                // Ensure there are not multiple frees even with copy allocations
                 if (new_ptr->next) {
                     if (new_ptr->next->prev != new_ptr) {
                         printf("MEMORY BUG: %s%d: invalid free of pointer %p\n", file, line, ptr);
@@ -220,4 +270,10 @@ void m61_printleakreport(void) {
     for (struct m61_metadata* metadata = metadata_head; metadata != NULL; metadata = metadata->next) {
         printf("LEAK CHECK: %s:%d: allocated object %p with size %llu\n", metadata->file, metadata->line, metadata->ptr_addr, metadata->size);
     }
+}
+
+// Function to print out Heavy Hitters
+void m61_printheavyhitters(void) {
+    for(int i = 0; i < HEAVY_HITTERS_MAX_SIZE; i++)
+        printf("HEAVY HITTER: %s:%d: %llu bytes (%%~%.2f)\n", heavy_hitters[i].file, heavy_hitters[i].line, heavy_hitters[i].size, 100.0 * heavy_hitters[i].size / sample_size);
 }

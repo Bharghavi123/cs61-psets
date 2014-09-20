@@ -126,5 +126,5 @@ int main(int argc, char **argv) {
 
         phase(skew, count);
     }
-
+    m61_printheavyhitters();
 }
