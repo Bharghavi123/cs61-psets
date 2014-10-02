@@ -34,7 +34,7 @@ my($VERBOSE) = exists($ENV{"VERBOSE"});
 my($MAKE) = exists($ENV{"MAKE"}) && int($ENV{"MAKE"});
 eval { require "syscall.ph" };
 
-my($Red, $Dimred, $Green, $Cyan, $Off) = ("\x1b[01;31m", "\x1b[31m", "\x1b[01;32m", "\x1b[01;36m", "\x1b[0m");
+my($Red, $Redctx, $Green, $Cyan, $Off) = ("\x1b[01;31m", "\x1b[01;35m", "\x1b[01;32m", "\x1b[01;36m", "\x1b[0m");
 
 
 $SIG{"CHLD"} = sub {};
@@ -204,9 +204,9 @@ sub run_sh61 ($;%) {
             $tx .= ($tx eq "" ? "" : "        : ") . $l . "\n" if $l ne "";
         }
         if ($tx ne "" && exists($answer->{"trial"})) {
-            $answer->{"stderr"} = "    ${Dimred}YOUR STDERR (TRIAL " . $answer->{"trial"} . "): $tx${Off}";
+            $answer->{"stderr"} = "    ${Redctx}YOUR STDERR (TRIAL " . $answer->{"trial"} . "): $tx${Off}";
         } elsif ($tx ne "") {
-            $answer->{"stderr"} = "    ${Dimred}YOUR STDERR: $tx${Off}";
+            $answer->{"stderr"} = "    ${Redctx}YOUR STDERR: $tx${Off}";
         }
     }
     return $answer;
@@ -379,7 +379,7 @@ sub run ($$$%) {
     # print stdio vs. yourcode comparison
     if ($t && $tt && $tt->{"time"}) {
         my($ratio) = $t->{"time"} / $tt->{"time"};
-        my($color) = ($ratio < 0.5 ? $Dimred : ($ratio > 1.9 ? $Green : $Cyan));
+        my($color) = ($ratio < 0.5 ? $Redctx : ($ratio > 1.9 ? $Green : $Cyan));
         printf("RATIO:     ${color}%.2fx stdio${Off}\n", $ratio);
         push @ratios, $ratio;
         push @basetimes, $t->{"time"};
