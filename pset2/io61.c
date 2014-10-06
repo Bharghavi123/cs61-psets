@@ -4,16 +4,128 @@
 #include <limits.h>
 #include <errno.h>
 
+#define CACHE_SIZE 32768
+
 // io61.c
 //    YOUR CODE HERE!
 
+typedef struct io61_cache {
+    size_t start;
+    size_t end;
+    unsigned char* memory;
+    size_t size;
+} io61_cache;
+
 
 // io61_file
-//    Data structure for io61 file wrappers. Add your own stuff.
+//    store structure for io61 file wrappers. Add your own stuff.
 
 struct io61_file {
     int fd;
+    off_t position;       // Actual position in file
+    off_t user_position;  // User 'position' in file
+    io61_cache* cache;
 };
+
+// make_cache()
+//    Returns pointer to instantiated cache 
+io61_cache* make_cache() {
+    io61_cache* cache = malloc(sizeof(io61_cache));
+    cache->memory = calloc(CACHE_SIZE, sizeof(char));
+    cache->start = 0;
+    cache->end = 0;
+    cache->size = 0;
+    return cache;
+}
+
+// update_cache(f)
+//    Update the current cache, returns number of bytes put in cash
+
+size_t update_cache(io61_file* f) {
+    size_t nread = 0;
+    while (nread != CACHE_SIZE) {
+        ssize_t actual_read = read(f->fd, f->cache->memory + nread, CACHE_SIZE - nread);
+        if (actual_read == 0)
+            break;
+        nread += (ssize_t) actual_read;
+    }
+    f->cache->start = (size_t) f->position;
+    f->position += (off_t) nread;
+    f->cache->end = (size_t) f->position;
+    return nread;
+}
+
+
+// cache_read(cache, buffer, position, sz)
+//    Attempts to read from the cache. Returns the amount read from the cache
+//    and returns 0 otherwise.
+   
+size_t cache_read(io61_cache* cache, char* buffer, off_t position, size_t sz) {
+    off_t cache_start = cache->start;
+    off_t cache_end = cache->end;
+
+    if (position >= cache_start && position + (off_t) sz <= cache_end) {
+        memcpy(buffer, cache->memory + (position - cache_start), sz);
+        return sz;
+    }
+    else if (position >= cache_start && position <= cache_end && position + (off_t) sz > cache_end) {
+        // Read what we can from our cache
+        size_t available = cache_end - position;
+        memcpy(buffer, cache->memory + (position - cache_start), available);
+        // Amount that we were able to read from cache
+        return available;
+    }
+    // We weren't able to read anything from cache
+    return 0;
+}
+
+// write_cache(cache, buffer, sz)
+//    Attempts to write to cache. Returns the amount written to the cache,
+//    otherwise returns 0 if cache is full and can't be written to
+
+size_t write_cache(io61_cache* cache, const char* buffer, size_t sz) {
+    // Determine how much space is left in our cache 
+    size_t available = CACHE_SIZE - cache->size;
+
+    // Check if the cache is already full
+    if (!available) {
+        return 0;
+    }
+
+    // Determine how much to actually write
+    size_t nwritten = available >= sz ? sz : available;
+
+    // If we still have some space, write whatever we can to the cache
+    memcpy(cache->memory + cache->size, buffer, nwritten);
+
+    // Update the size of our cache
+    cache->size += nwritten;
+
+    // Return the amount that was actually written
+    return nwritten;
+}
+
+// empty_cache(f)
+//    Empty the current cache by writing to f, returns void
+
+void empty_cache(io61_file *f) {
+    size_t nwritten = 0;
+    while (nwritten != f->cache->size) {
+        ssize_t actual_written = write(f->fd, f->cache->memory + nwritten, f->cache->size - nwritten);
+        if (actual_written == -1)
+            break;
+        nwritten += (size_t) actual_written;
+    }
+
+    // Update cache size
+    f->cache->size -= nwritten;
+    
+    // Copy the unwritten cache to the beginning of the cache
+    memcpy(f->cache->memory, f->cache->memory + nwritten, f->cache->size);
+    
+    // Zero the cache that was written
+    bzero(f->cache->memory + f->cache->size, nwritten);
+}
 
 
 // io61_fdopen(fd, mode)
@@ -26,6 +138,9 @@ io61_file* io61_fdopen(int fd, int mode) {
     assert(fd >= 0);
     io61_file* f = (io61_file*) malloc(sizeof(io61_file));
     f->fd = fd;
+    f->position = 0;
+    f->user_position = 0;
+    f->cache = make_cache();
     (void) mode;
     return f;
 }
@@ -49,8 +164,12 @@ int io61_close(io61_file* f) {
 
 int io61_readc(io61_file* f) {
     unsigned char buf[1];
-    if (read(f->fd, buf, 1) == 1)
+    char* buffer = malloc(sizeof(char));
+    if (io61_read(f, buffer, 1) == 1) {
+        buf[0] = (unsigned char) *buffer;
+        free(buffer);
         return buf[0];
+    }
     else
         return EOF;
 }
@@ -65,13 +184,25 @@ int io61_readc(io61_file* f) {
 ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
     size_t nread = 0;
     while (nread != sz) {
-        int ch = io61_readc(f);
-        if (ch == EOF)
+
+        // First, let's try to read from out cache        
+        size_t actual_read = cache_read(f->cache, buf + nread, f->user_position, sz - nread);
+            
+        // Keep track of how much we've read
+        nread += actual_read;
+
+        // Update the user position
+        f->user_position += (off_t) actual_read;
+
+        // If we aren't able to read everything from our cache
+        // we have to read from the file directly
+        // Check for the end of file or if we already read enough, 
+        // we can update cash was not updated
+        if (nread == sz || !update_cache(f)) {          
             break;
-        buf[nread] = ch;
-        ++nread;
+        }
     }
-    if (nread != 0 || sz == 0 || io61_eof(f))
+    if (nread != 0 || sz == 0 || io61_eof(f)) 
         return nread;
     else
         return -1;
@@ -83,9 +214,8 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
 //    -1 on error.
 
 int io61_writec(io61_file* f, int ch) {
-    unsigned char buf[1];
-    buf[0] = ch;
-    if (write(f->fd, buf, 1) == 1)
+    const char* buf = (const char*) &ch;
+    if (io61_write(f, buf, 1) == 1)
         return 0;
     else
         return -1;
@@ -100,9 +230,17 @@ int io61_writec(io61_file* f, int ch) {
 ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
     size_t nwritten = 0;
     while (nwritten != sz) {
-        if (io61_writec(f, buf[nwritten]) == -1)
-            break;
-        ++nwritten;
+
+        // First, let's try to write to the cache
+        size_t actual_written = write_cache(f->cache, buf + nwritten, sz - nwritten);
+
+        // update how much we have written
+        nwritten += actual_written;
+
+        // If our cache isn't empty, then we need to empty the cache
+        if (actual_written == 0) {
+            empty_cache(f);
+        }
     }
     if (nwritten != 0 || sz == 0)
         return nwritten;
@@ -117,7 +255,8 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
 //    data buffered for reading, or do nothing.
 
 int io61_flush(io61_file* f) {
-    (void) f;
+    if (f->cache->size)
+        empty_cache(f);
     return 0;
 }
 
