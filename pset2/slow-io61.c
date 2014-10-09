@@ -114,7 +114,7 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
 // io61_flush(f)
 //    Forces a write of all buffered data written to `f`.
 //    If `f` was opened read-only, io61_flush(f) may either drop all
-//    buffered data or do nothing.
+//    data buffered for reading, or do nothing.
 
 int io61_flush(io61_file* f) {
     (void) f;
@@ -126,7 +126,7 @@ int io61_flush(io61_file* f) {
 //    Change the file pointer for file `f` to `pos` bytes into the file.
 //    Returns 0 on success and -1 on failure.
 
-int io61_seek(io61_file* f, size_t pos) {
+int io61_seek(io61_file* f, off_t pos) {
     off_t r = lseek(f->fd, (off_t) pos, SEEK_SET);
     if (r == (off_t) pos)
         return 0;
@@ -146,8 +146,8 @@ int io61_seek(io61_file* f, size_t pos) {
 io61_file* io61_open_check(const char* filename, int mode) {
     int fd;
     if (filename)
-        fd = open(filename, mode);
-    else if (mode == O_RDONLY)
+        fd = open(filename, mode, 0666);
+    else if ((mode & O_ACCMODE) == O_RDONLY)
         fd = STDIN_FILENO;
     else
         fd = STDOUT_FILENO;
@@ -155,18 +155,18 @@ io61_file* io61_open_check(const char* filename, int mode) {
         fprintf(stderr, "%s: %s\n", filename, strerror(errno));
         exit(1);
     }
-    return io61_fdopen(fd, mode);
+    return io61_fdopen(fd, mode & O_ACCMODE);
 }
 
 
 // io61_filesize(f)
-//    Return the number of bytes in `f`. Returns -1 if `f` is not a seekable
-//    file (for instance, if it is a pipe).
+//    Return the size of `f` in bytes. Returns -1 if `f` does not have a
+//    well-defined size (for instance, if it is a pipe).
 
-ssize_t io61_filesize(io61_file* f) {
+off_t io61_filesize(io61_file* f) {
     struct stat s;
     int r = fstat(f->fd, &s);
-    if (r >= 0 && S_ISREG(s.st_mode) && s.st_size <= SSIZE_MAX)
+    if (r >= 0 && S_ISREG(s.st_mode))
         return s.st_size;
     else
         return -1;
@@ -174,9 +174,16 @@ ssize_t io61_filesize(io61_file* f) {
 
 
 // io61_eof(f)
-//    Test if readable file `f` is at end-of-file.
+//    Test if readable file `f` is at end-of-file. Should only be called
+//    immediately after a `read` call that returned 0 or -1.
 
 int io61_eof(io61_file* f) {
     char x;
-    return read(f->fd, &x, 1) == 0;
+    ssize_t nread = read(f->fd, &x, 1);
+    if (nread == 1) {
+        fprintf(stderr, "Error: io61_eof called improperly\n\
+  (Only call immediately after a read() that returned 0 or -1.)\n");
+        abort();
+    }
+    return nread == 0;
 }

@@ -403,7 +403,9 @@ sub run ($$$%) {
             $different = 0;
         } elsif (!$NOSTDIO && !$NOYOURCODE) {
             foreach my $fname (@outfiles) {
-                $different = 1 if `cmp files/base$fname files/$fname >/dev/null 2>&1 || echo OOPS` eq "OOPS\n";
+                my($basefname) = $fname;
+                $basefname =~ s{files/}{files/base};
+                $different = 1 if `cmp $basefname $fname >/dev/null 2>&1 || echo OOPS` eq "OOPS\n";
             }
         } elsif (exists($t->{"md5sum"}) && !$NOYOURCODE) {
             #$tt->{"md5sum"} = file_md5sum("files/out$outsuf")
@@ -412,7 +414,10 @@ sub run ($$$%) {
             $whydifferent = " (got md5sum " . $tt->{"md5sum"} . ", expected " . $t->{"md5sum"} . ")";
         }
         if ($different) {
-            print "           ${Red}ERROR: ", join("+", @outfiles), " differs from stdio's ", join("+", map {"base$_"} @outfiles), "${Off}$whydifferent\n";
+            my(@xoutfiles) = map {s{^files/}{}; $_} @outfiles;
+            print "           ${Red}ERROR: ", join("+", @xoutfiles),
+                " differs from stdio's ", join("+", map {"base$_"} @xoutfiles),
+                "${Off}$whydifferent\n";
             ++$nerror;
         }
     }
