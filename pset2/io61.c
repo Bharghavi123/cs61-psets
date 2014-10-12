@@ -124,7 +124,7 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
     
     while (nread != sz) {
         // If the cache is valid...
-        if (cache->next != cache->end) {
+        if (cache->next < cache->end) {
             // Determine the size to read from the cache
             ssize_t size = min(cache->end - cache->next, sz - nread);
             
@@ -147,7 +147,7 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
             if (size > 0)
                 cache->end += size; // ...update the cache end offset
             else
-                return nread ? nread : size;
+                return (ssize_t) nread ? (ssize_t) nread : size;
         }
     }
     return nread;
@@ -222,7 +222,7 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
             }
             // Else write not successful
             else
-                return nwritten ? nwritten : cleared;             
+                return (ssize_t) nwritten ? (ssize_t) nwritten : cleared;             
         }
         // Else, there is space in the cache...
         else {
