@@ -34,7 +34,7 @@ my($VERBOSE) = exists($ENV{"VERBOSE"});
 my($MAKE) = exists($ENV{"MAKE"}) && int($ENV{"MAKE"});
 eval { require "syscall.ph" };
 
-my($Red, $Dimred, $Green, $Cyan, $Off) = ("\x1b[01;31m", "\x1b[31m", "\x1b[01;32m", "\x1b[01;36m", "\x1b[0m");
+my($Red, $Redctx, $Green, $Cyan, $Off) = ("\x1b[01;31m", "\x1b[01;35m", "\x1b[01;32m", "\x1b[01;36m", "\x1b[0m");
 
 
 $SIG{"CHLD"} = sub {};
@@ -89,7 +89,7 @@ sub verify_file ($) {
 
 sub file_md5sum ($) {
     my($x) = `$CHECKSUM $_[0]`;
-    $x =~ s,\A(\S+).*\z,\1,s;
+    $x =~ s{\A(\S+).*\z}{\1}s;
     return $x;
 }
 
@@ -98,6 +98,11 @@ sub run_sh61 ($;%) {
     my($outfile) = exists($opt{"stdout"}) ? $opt{"stdout"} : undef;
     my($size_limit_file) = exists($opt{"size_limit_file"}) ? $opt{"size_limit_file"} : $outfile;
     $size_limit_file = [$size_limit_file] if $size_limit_file && !ref($size_limit_file);
+    if (exists($opt{"dir"}) && $size_limit_file) {
+        my($dir) = $opt{"dir"};
+        $dir =~ s{/+$}{};
+        $size_limit_file = [map { m{^/} ? $_ : "$dir/$_" } @$size_limit_file];
+    }
     my($pr, $pw) = POSIX::pipe();
     my($or, $ow) = POSIX::pipe();
     1 while waitpid(-1, WNOHANG) > 0;
@@ -186,7 +191,9 @@ sub run_sh61 ($;%) {
             }
             if ($VERBOSE && $fname eq "pipe") {
                 # XXX
-            } elsif ($VERBOSE && -f $fname) {
+            } elsif (($VERBOSE || exists($ENV{"MAKETRIALLOG"}) || exists($ENV{"TRIALLOG"}))
+                     && -f $fname
+                     && (!exists($opt{"no_content_check"}) || !$opt{"no_content_check"})) {
                 push @sums, file_md5sum($fname);
             }
         }
@@ -204,9 +211,9 @@ sub run_sh61 ($;%) {
             $tx .= ($tx eq "" ? "" : "        : ") . $l . "\n" if $l ne "";
         }
         if ($tx ne "" && exists($answer->{"trial"})) {
-            $answer->{"stderr"} = "    ${Dimred}YOUR STDERR (TRIAL " . $answer->{"trial"} . "): $tx${Off}";
+            $answer->{"stderr"} = "    ${Redctx}YOUR STDERR (TRIAL " . $answer->{"trial"} . "): $tx${Off}";
         } elsif ($tx ne "") {
-            $answer->{"stderr"} = "    ${Dimred}YOUR STDERR: $tx${Off}";
+            $answer->{"stderr"} = "    ${Redctx}YOUR STDERR: $tx${Off}";
         }
     }
     return $answer;
@@ -238,8 +245,8 @@ sub maybe_make ($) {
     }
 }
 
-sub run_trials ($$$$$$$) {
-    my($number, $type, $command, $infiles, $outfiles, $max_size, $max_trials) = @_;
+sub run_trials ($$$$$$$%) {
+    my($number, $type, $command, $infiles, $outfiles, $max_size, $max_trials, %opt) = @_;
     my($ntrials, $nerrors, $totaltime) = (0, 0, 0);
 
     do {
@@ -254,7 +261,8 @@ sub run_trials ($$$$$$$) {
                           "size_limit" => $max_size,
                           "answer" => {"number" => $number,
                                        "type" => $type,
-                                       "trial" => $ntrials + 1});
+                                       "trial" => $ntrials + 1},
+                          "no_content_check" => exists($opt{"no_content_check"}));
         push @alltests, $t;
 
         $ntrials += 1;
@@ -333,14 +341,14 @@ sub run ($$$%) {
     $stdiocmd =~ s<(\./)([a-z]*61)><${1}stdio-$2>g;
     $stdiocmd =~ s<out(\d*)\.(txt|bin)><baseout$1\.$2>g;
     my(@outfiles) = ();
-    while ($stdiocmd =~ m<(baseout\d*\.(?:txt|bin))>g) {
+    while ($stdiocmd =~ m{([^\s<>]*baseout\d*\.(?:txt|bin))}g) {
         push @outfiles, $1;
     }
     if (!$NOSTDIO) {
         maybe_make($stdiocmd);
         print "STDIO:     ";
         run_trials($number, "stdio", $stdiocmd, \@infiles,
-                   \@outfiles, 0, $STDIOTRIALS);
+                   \@outfiles, 0, $STDIOTRIALS, %opt);
     }
     my($t) = median_trial($number, "stdio", $stdiocmd);
     print "STDIO:     " if $t && $NOSTDIO;
@@ -355,14 +363,14 @@ sub run ($$$%) {
 
     # run yourcode version
     @outfiles = ();
-    while ($command =~ m<(out\d*\.(?:txt|bin))>g) {
+    while ($command =~ m{([^\s<>]*out\d*\.(?:txt|bin))}g) {
         push @outfiles, $1;
     }
     if (!$NOYOURCODE) {
         maybe_make($command);
         print "YOUR CODE: ";
         run_trials($number, "yourcode", $command, \@infiles,
-                   \@outfiles, $outsize * 2, $TRIALS);
+                   \@outfiles, $outsize * 2, $TRIALS, %opt);
     }
     my($tt) = median_trial($number, "yourcode", $command);
     print "YOUR CODE: " if $tt && $NOYOURCODE;
@@ -379,13 +387,13 @@ sub run ($$$%) {
     # print stdio vs. yourcode comparison
     if ($t && $tt && $tt->{"time"}) {
         my($ratio) = $t->{"time"} / $tt->{"time"};
-        my($color) = ($ratio < 0.5 ? $Dimred : ($ratio > 1.9 ? $Green : $Cyan));
+        my($color) = ($ratio < 0.5 ? $Redctx : ($ratio > 1.9 ? $Green : $Cyan));
         printf("RATIO:     ${color}%.2fx stdio${Off}\n", $ratio);
         push @ratios, $ratio;
         push @basetimes, $t->{"time"};
     }
     if ($t && $tt) {
-        my($different) = 0;
+        my($different, $whydifferent) = (0, "");
         if (exists($t->{"outputsize"}) && exists($tt->{"outputsize"})
             && $t->{"outputsize"} != $tt->{"outputsize"}) {
             print "           ${Red}ERROR: ", join("+", @outfiles), " has size ", $tt->{"outputsize"},
@@ -395,15 +403,21 @@ sub run ($$$%) {
             $different = 0;
         } elsif (!$NOSTDIO && !$NOYOURCODE) {
             foreach my $fname (@outfiles) {
-                $different = 1 if `cmp files/base$fname files/$fname >/dev/null 2>&1 || echo OOPS` eq "OOPS\n";
+                my($basefname) = $fname;
+                $basefname =~ s{files/}{files/base};
+                $different = 1 if `cmp $basefname $fname >/dev/null 2>&1 || echo OOPS` eq "OOPS\n";
             }
         } elsif (exists($t->{"md5sum"}) && !$NOYOURCODE) {
             #$tt->{"md5sum"} = file_md5sum("files/out$outsuf")
             #    if !exists($tt->{"md5sum"}); ???
             $different = 1 if $t->{"md5sum"} ne $tt->{"md5sum"};
+            $whydifferent = " (got md5sum " . $tt->{"md5sum"} . ", expected " . $t->{"md5sum"} . ")";
         }
         if ($different) {
-            print "           ${Red}ERROR: ", join("+", @outfiles), " differs from stdio's ", join("+", map {"base$_"} @outfiles), "${Off}\n";
+            my(@xoutfiles) = map {s{^files/}{}; $_} @outfiles;
+            print "           ${Red}ERROR: ", join("+", @xoutfiles),
+                " differs from stdio's ", join("+", map {"base$_"} @xoutfiles),
+                "${Off}$whydifferent\n";
             ++$nerror;
         }
     }
@@ -453,14 +467,20 @@ sub summary () {
         printf "           total time %.3f your code\n", $runtime;
     }
 
-    if ($VERBOSE) {
-        print "\n";
+    if ($VERBOSE || exists($ENV{"MAKETRIALLOG"})) {
+        my(@testjsons);
         foreach my $t (@alltests) {
             my(@tout, $k, $v) = ();
             while (($k, $v) = each %$t) {
                 push @tout, "\"$k\":" . (looks_like_number($v) ? $v : "\"$v\"");
             }
-            print "{", join(",", @tout), "}\n";
+            push @testjsons, "{" . join(",", @tout) . "}\n";
+        }
+        print "\n", @testjsons if $VERBOSE;
+        if (exists($ENV{"MAKETRIALLOG"}) && $ENV{"MAKETRIALLOG"}) {
+            open(OTRIALLOG, ">", $ENV{"MAKETRIALLOG"} eq "1" ? "triallog.txt" : $ENV{"MAKETRIALLOG"}) or die;
+            print OTRIALLOG @testjsons;
+            close(OTRIALLOG);
         }
     }
 }

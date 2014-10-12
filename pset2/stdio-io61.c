@@ -149,7 +149,8 @@ off_t io61_filesize(io61_file* f) {
 
 
 // io61_eof(f)
-//    Test if readable file `f` is at end-of-file.
+//    Test if readable file `f` is at end-of-file. Should only be called
+//    immediately after a `read` call that returned 0 or -1.
 
 int io61_eof(io61_file* f) {
     return feof(f->f);
