@@ -13,12 +13,13 @@
 
 typedef struct io61_cache {
     unsigned char* memory;
-    size_t size;    // Current size of cache
-    size_t first;   // Position of the first char in writing cache
+    size_t size;     // Current size of cache
+    size_t first;    // Position of the first char in writing cache
     size_t last;     // Position of the last char in writing cache
-    off_t start;    // File offset of first character in cache
-    off_t next;     // File offset of next char to read in cache
-    off_t end;      // File offset of last valid char in cache
+    off_t start;     // File offset of first character in cache
+    off_t next;      // File offset of next char to read in cache
+    off_t prev_next; // File offset of previous next
+    off_t end;       // File offset of last valid char in cache
 } io61_cache;
 
 
@@ -28,6 +29,7 @@ typedef struct io61_cache {
 struct io61_file {
     int fd;
     io61_cache* cache;
+    int mode;
 };
 
 // min(a, b)
@@ -41,7 +43,7 @@ int min(int a , int b) {
 io61_cache* make_cache() {
     io61_cache* cache = malloc(sizeof(io61_cache));
     cache->memory = calloc(CACHE_SIZE, sizeof(char));
-    cache->size = cache->first = cache->last = cache->start = cache->next = cache->end = 0;
+    cache->size = cache->first = cache->last = cache->start = cache->next = cache->prev_next = cache->end = 0;
     return cache;
 }
 
@@ -56,7 +58,7 @@ io61_file* io61_fdopen(int fd, int mode) {
     io61_file* f = (io61_file*) malloc(sizeof(io61_file));
     f->fd = fd;
     f->cache = make_cache();
-    (void) mode;
+    f->mode = mode;
     return f;
 }
 
@@ -205,10 +207,40 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
     size_t nwritten = 0;
 
     while (nwritten != sz) {
+
         // Determine how much space is left in cache 
         size_t available = CACHE_SIZE - cache->size;
+
+        // If the previous next is not the same as the current next...
+        if (cache->prev_next != cache->next) {
+            //...seek back to previous next
+            off_t r = lseek(f->fd, cache->prev_next, SEEK_SET);
+            if (r != cache->prev_next)
+                return -1;
+            //...write the cache to file
+            ssize_t cleared = write(f->fd, cache->memory + cache->first, cache->size);
+            
+            if (cleared >= 0) {
+                // update the previous next to next, if all of the cache was read 
+                cache->prev_next = ((size_t) cleared != cache->size) ? (cache->prev_next + cleared) : cache->next;
+                // ...update cache first, end, and size
+                cache->first += cleared;
+                cache->size -= cleared;
+                // Check to see if last or first at the end of cache
+                cache->first = (CACHE_SIZE == cache->first) ? 0 : cache->first;
+                cache->last = (CACHE_SIZE == cache->last) ? 0 : cache->last;
+                // ...see back to next
+                lseek(f->fd, cache->next, SEEK_SET);
+                off_t r = lseek(f->fd, cache->prev_next, SEEK_SET);
+                if (r != cache->prev_next)
+                    return (ssize_t) nwritten ? (ssize_t) nwritten : cleared;
+            }
+            // Else write not successful
+            else
+                return (ssize_t) nwritten ? (ssize_t) nwritten : cleared; 
+        }
         // If cache already full...
-        if (!available) {
+        else if (!available) {
             //...write the cache to the file.
             ssize_t cleared = write(f->fd, cache->memory + cache->first, CACHE_SIZE - cache->first);
             // If able to write some of cache to file...
@@ -287,6 +319,7 @@ int io61_seek(io61_file* f, off_t pos) {
             return -1;
         cache->start = cache->end = aligned_off;
     }
+    cache->prev_next = cache->next;
     cache->next = pos;
     return 0;
 }
