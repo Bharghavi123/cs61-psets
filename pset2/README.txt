@@ -10,7 +10,8 @@ YOUR NAME:
 YOUR HUID:
 
 OTHER COLLABORATORS AND CITATIONS (if any):
-
+Referenced example code from http://cs61.seas.harvard.edu/wiki/2014/ExerciseIO
+for io61_read and io61_seek.
 
 
 KNOWN BUGS (if any):
