@@ -85,6 +85,12 @@ io61_file* io61_fdopen(int fd, int mode) {
 int io61_close(io61_file* f) {
     io61_flush(f);
     int r = close(f->fd);
+    // free the cache
+    if (f->cache->mmapped)
+        munmap(f->cache->memory, f->size);
+    else
+        free(f->cache->memory);
+    free(f->cache);
     free(f);
     return r;
 }
