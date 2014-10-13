@@ -3,6 +3,9 @@
 #include <sys/stat.h>
 #include <limits.h>
 #include <errno.h>
+#include <sys/mman.h>
+#include <string.h>
+#include <string.h>
 
 #define CACHE_SIZE 16384
 // INVARIANT: assert(cache->start <= cache->size);
@@ -20,6 +23,7 @@ typedef struct io61_cache {
     off_t next;      // File offset of next char to read in cache
     off_t prev_next; // File offset of previous next
     off_t end;       // File offset of last valid char in cache
+    int mmapped;     // Flag to 
 } io61_cache;
 
 
@@ -30,6 +34,7 @@ struct io61_file {
     int fd;
     io61_cache* cache;
     int mode;
+    off_t size;
 };
 
 // min(a, b)
@@ -40,9 +45,18 @@ int min(int a , int b) {
 
 // make_cache()
 //    Returns pointer to instantiated cache 
-io61_cache* make_cache() {
+io61_cache* make_cache(io61_file* f) {
     io61_cache* cache = malloc(sizeof(io61_cache));
-    cache->memory = calloc(CACHE_SIZE, sizeof(char));
+    unsigned char* memory = (f->mode == O_RDONLY) ? mmap(NULL, f->size, PROT_READ, MAP_PRIVATE, f->fd, 0) : MAP_FAILED;
+    if (memory != MAP_FAILED) {
+        cache->memory = memory;
+        cache->mmapped = 1;
+        cache->end = f->size;
+    }
+    else {
+        cache->memory = calloc(CACHE_SIZE, sizeof(char));
+        cache->mmapped = 0;
+    }
     cache->size = cache->first = cache->last = cache->start = cache->next = cache->prev_next = cache->end = 0;
     return cache;
 }
@@ -57,8 +71,9 @@ io61_file* io61_fdopen(int fd, int mode) {
     assert(fd >= 0);
     io61_file* f = (io61_file*) malloc(sizeof(io61_file));
     f->fd = fd;
-    f->cache = make_cache();
     f->mode = mode;
+    f->size = io61_filesize(f);
+    f->cache = make_cache(f);
     return f;
 }
 
@@ -82,8 +97,17 @@ int io61_close(io61_file* f) {
 int io61_readc(io61_file* f) {
     // Alias for file cache
     io61_cache* cache = f->cache;
-    // If the cache is valid...
-    if (cache->next < cache->end) {
+    // If file is memory mapped...
+    if (cache->mmapped) {
+        // Update the cache position
+        cache->next++;
+
+        // If cache is still valid return char, else return EOF
+        return (cache->next > f->size) ? EOF : *(cache->memory + cache->next - 1);
+
+    }
+    // Else if the cache is valid...
+    else if (cache->next < cache->end) {
         // Update the cache position
         cache->next++;
         // Return the next char from cache
@@ -122,8 +146,24 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
     // Alias for f->cache
     io61_cache* cache = f->cache;
 
+    // If file is memory mapped...
+    if (cache->mmapped) {
+        // Determine the size to read from the memory map
+        ssize_t size = min(f->size - cache->next, sz);
+
+
+        // Copy from memory map into the buffer
+        memcpy(buf, cache->memory + cache->next, size);
+
+        // Update the cache position
+        cache->next += size;
+
+        // Return the amount that was read
+        return size;
+    }
+
     size_t nread = 0; // number of characters read so far
-    
+
     while (nread != sz) {
         // If the cache is valid...
         if (cache->next < cache->end) {
