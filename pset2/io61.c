@@ -95,6 +95,10 @@ int io61_close(io61_file* f) {
 //    (which is -1) on error or end-of-file.
 
 int io61_readc(io61_file* f) {
+    // If f was opened read-only...
+    if (f->mode != O_RDONLY)
+        return -1;
+
     // Alias for file cache
     io61_cache* cache = f->cache;
     // If file is memory mapped...
@@ -143,6 +147,10 @@ int io61_readc(io61_file* f) {
 //    -1 an error occurred before any characters were read.
 
 ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
+    // If f was not opened read-only...
+    if (f->mode != O_RDONLY)
+        return -1;
+
     // Alias for f->cache
     io61_cache* cache = f->cache;
 
@@ -201,6 +209,10 @@ ssize_t io61_read(io61_file* f, char* buf, size_t sz) {
 //    -1 on error.
 
 int io61_writec(io61_file* f, int ch) {
+    // If f was not opened write-only...
+    if (f->mode != O_WRONLY)
+        return -1;
+
     // Alias the file cache
     io61_cache* cache = f->cache;
 
@@ -241,6 +253,10 @@ int io61_writec(io61_file* f, int ch) {
 //    an error occurred before any characters were written.
 
 ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
+    // If f was not opened for write-only...
+    if (f->mode != O_WRONLY)
+        return -1;
+
     // Create an alias for the file cache
     io61_cache* cache = f->cache;
    
@@ -320,6 +336,9 @@ ssize_t io61_write(io61_file* f, const char* buf, size_t sz) {
 //    data buffered for reading, or do nothing.
 
 int io61_flush(io61_file* f) {
+    // If f was opened read-only...
+    if (f->mode == O_RDONLY)
+        return 0;
     // Alias for file cache
     io61_cache* cache = f->cache;
     // While the cache is not empty...
