@@ -29,5 +29,6 @@ stdio-reordercat61
 stdio-reverse61
 stdio-scatter61
 stdio-stridecat61
+strace.out*
 stridecat61
 text20meg.txt
