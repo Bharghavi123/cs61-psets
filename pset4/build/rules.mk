@@ -96,13 +96,19 @@ run-console-gdb: run-gdb-console-$(basename $(IMAGE))
 
 
 check-qemu: $(OBJDIR)/libqemu-nograb.so.1
-	@if test $$(whoami) = jharvard -a -z "$$(which $(QEMU) 2>/dev/null)"; then \
+	@if test -z "$$(which $(QEMU) 2>/dev/null)"; then \
 	    echo 1>&2; echo "***" 1>&2; \
 	    echo "*** Cannot run $(QEMU). You may not have installed it yet." 1>&2; \
-	    echo "*** I am going to try to install it for you." 1>&2; \
-	    echo "***" 1>&2; echo 1>&2; \
-	    echo sudo yum install -y qemu-system-x86; \
-	    sudo yum install -y qemu-system-x86 || exit 1; \
+	    if test -x /usr/bin/apt-get; then \
+	        cmd="apt-get -y install"; else cmd="yum install -y"; fi; \
+	    if test $$(whoami) = jharvard; then \
+	        echo "*** I am going to try to install it for you." 1>&2; \
+	        echo "***" 1>&2; echo 1>&2; \
+	        echo sudo $$cmd qemu-system-x86; \
+	        sudo $$cmd qemu-system-x86 || exit 1; \
+	    else echo "*** Try running this command to install it:" 1>&2; \
+	        echo sudo $$cmd qemu-system-x86 1>&2; \
+	        echo 1>&2; exit 1; fi; \
 	else :; fi
 
 run-%: run-qemu-%
