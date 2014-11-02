@@ -42,16 +42,16 @@ PROCESS_OBJS = $(OBJDIR)/p-allocator.o $(OBJDIR)/p-fork.o \
 
 # Generic rules for making object files
 
-$(PROCESS_OBJS): $(OBJDIR)/%.o: %.c $(OBJDIR)/stamp $(DEPSDIR)/stamp
+$(PROCESS_OBJS): $(OBJDIR)/%.o: %.c $(BUILDSTAMPS)
 	$(call compile,-O1 -DWEENSYOS_PROCESS -c $< -o $@,COMPILE)
 
-$(OBJDIR)/%.o: %.c $(OBJDIR)/stamp $(DEPSDIR)/stamp
+$(OBJDIR)/%.o: %.c $(BUILDSTAMPS)
 	$(call compile,-DWEENSYOS_KERNEL -c $< -o $@,COMPILE)
 
-$(OBJDIR)/boot.o: boot.c $(OBJDIR)/stamp $(DEPSDIR)/stamp
+$(OBJDIR)/boot.o: boot.c $(BUILDSTAMPS)
 	$(call compile,-Os -fomit-frame-pointer -c $< -o $@,COMPILE)
 
-$(OBJDIR)/%.o: %.S $(OBJDIR)/stamp $(DEPSDIR)/stamp
+$(OBJDIR)/%.o: %.S $(BUILDSTAMPS)
 	$(call compile,-c $< -o $@,ASSEMBLE)
 
 
@@ -77,7 +77,7 @@ $(OBJDIR)/bootsector: $(BOOT_OBJS) link/boot.ld
 	$(call run,$(NM) -n $@.full >$@.sym)
 	$(call run,$(OBJCOPY) -S -O binary -j .text $@.full $@)
 
-$(OBJDIR)/mkbootdisk: build/mkbootdisk.c $(OBJDIR)/stamp
+$(OBJDIR)/mkbootdisk: build/mkbootdisk.c $(BUILDSTAMPS)
 	$(call run,$(HOSTCC) -I. -o $(OBJDIR)/mkbootdisk,HOSTCOMPILE,build/mkbootdisk.c)
 
 weensyos.img: $(OBJDIR)/mkbootdisk $(OBJDIR)/bootsector $(OBJDIR)/kernel

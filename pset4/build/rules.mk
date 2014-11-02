@@ -1,8 +1,5 @@
-OBJDIR	:= obj
-DEPSDIR	:= $(OBJDIR)/.deps
-DEPCFLAGS = -MD -MF $(DEPSDIR)/$*.d -MP
-REBUILD =
-comma	= ,
+OBJDIR := obj
+comma = ,
 
 # Cross-compiler toolchain
 CC	= $(GCCPREFIX)gcc
@@ -43,25 +40,34 @@ CPPFLAGS := $(DEFS) -I. -nostdinc
 CFLAGS := $(CFLAGS) \
 	-std=gnu99 -m32 -ffunction-sections \
 	-ffreestanding -fno-omit-frame-pointer \
-	-Wall -Wno-format -Wno-unused -Werror -ggdb
+	-Wall -Wno-format -Wno-unused -Werror -gdwarf-2
 # Include -fno-stack-protector if the option exists.
 CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
+DEPCFLAGS = -MD -MF $(DEPSDIR)/$*.d -MP
 
 # Linker flags
-LDFLAGS	:= $(LDFLAGS) -Os --gc-sections
+LDFLAGS := $(LDFLAGS) -Os --gc-sections
 # Link for 32-bit targets if on x86_64.
 LDFLAGS	+= $(shell $(LD) -m elf_i386 --help >/dev/null 2>&1 && echo -m elf_i386)
 
 
-# Object directory and dependencies
-$(OBJDIR)/stamp $(DEPSDIR)/stamp:
-	$(call run,mkdir -p $(@D))
-	$(call run,touch $@)
-
+# Dependencies
+DEPSDIR := .deps
+BUILDSTAMP := $(DEPSDIR)/rebuildstamp
 DEPFILES := $(wildcard $(DEPSDIR)/*.d)
 ifneq ($(DEPFILES),)
 include $(DEPFILES)
 endif
+
+ifneq ($(DEP_CC),$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPCFLAGS) $(O) _ $(LDFLAGS))
+DEP_CC := $(shell mkdir -p $(DEPSDIR); echo >$(BUILDSTAMP); echo "DEP_CC:=$(CC) $(CPPFLAGS) $(CFLAGS) $(DEPCFLAGS) $(O) _ $(LDFLAGS)" >$(DEPSDIR)/_cc.d; echo "DEP_PREFER_GCC:=$(PREFER_GCC)" >>$(DEPSDIR)/_cc.d)
+endif
+
+BUILDSTAMPS = $(OBJDIR)/stamp $(BUILDSTAMP)
+
+$(OBJDIR)/stamp $(BUILDSTAMP):
+	$(call run,mkdir -p $(@D))
+	$(call run,touch $@)
 
 
 # Qemu emulator
@@ -77,6 +83,7 @@ QEMUDISPLAY = $(if $(QEMUCONSOLE),console,graphic)
 QEMU_PRELOAD_LIBRARY = $(OBJDIR)/libqemu-nograb.so.1
 
 $(QEMU_PRELOAD_LIBRARY): build/qemu-nograb.c
+	$(call run,mkdir -p $(@D))
 	-$(call run,$(HOSTCC) -fPIC -shared -Wl$(comma)-soname$(comma)$(@F) -ldl -o $@ $<)
 
 QEMU_PRELOAD = $(shell if test -r $(QEMU_PRELOAD_LIBRARY); then echo LD_PRELOAD=$(QEMU_PRELOAD_LIBRARY); fi)
@@ -95,7 +102,7 @@ run-graphic-gdb: run-gdb-graphic-$(basename $(IMAGE))
 run-console-gdb: run-gdb-console-$(basename $(IMAGE))
 
 
-check-qemu: $(OBJDIR)/libqemu-nograb.so.1
+check-qemu: $(QEMU_PRELOAD_LIBRARY)
 	@if test -z "$$(which $(QEMU) 2>/dev/null)"; then \
 	    echo 1>&2; echo "***" 1>&2; \
 	    echo "*** Cannot run $(QEMU). You may not have installed it yet." 1>&2; \
@@ -142,7 +149,7 @@ kill:
 
 # Delete the build
 clean:
-	$(call run,rm -rf $(OBJDIR) *.img core *.core,CLEAN)
+	$(call run,rm -rf $(DEPSDIR) $(OBJDIR) *.img core *.core,CLEAN)
 
 realclean: clean
 	$(call run,rm -rf $(DISTDIR)-$(USER).tar.gz $(DISTDIR)-$(USER))
