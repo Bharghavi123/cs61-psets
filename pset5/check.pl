@@ -300,38 +300,74 @@ if (!-x '/bin/md5sum' && !-x '/usr/bin/md5sum' && -x '/sbin/md5') {
       # are extra credit.)
       '(echo Hello; echo Bye) > f%%a.txt'],
 
+    [ 'Test 52',
+      'echo > /tmp/directorydoesnotexist/foo',
+      'No such file or directory',
+      '',
+      'perl -pi -e "s,^.*:\s*,," out%%.txt' ],
 
-    [ 'Test 52 (cd)',
+    [ 'Test 53',
+      'echo > /tmp/directorydoesnotexist/foo && echo Unwanted',
+      'No such file or directory',
+      '',
+      'perl -pi -e "s,^.*:\s*,," out%%.txt' ],
+
+    [ 'Test 54',
+      'echo > /tmp/directorydoesnotexist/foo || echo Wanted',
+      'No such file or directory Wanted',
+      '',
+      'perl -pi -e "s,^.*:\s*,," out%%.txt' ],
+
+    [ 'Test 55',
+      'echo Hello < nonexistent',
+      'No such file or directory',
+      '',
+      'perl -pi -e "s,^.*:\s*,," out%%.txt' ],
+
+    [ 'Test 56',
+      'echo Hello < nonexistent && echo Unwanted',
+      'No such file or directory',
+      '',
+      'perl -pi -e "s,^.*:\s*,," out%%.txt' ],
+
+    [ 'Test 57',
+      'echo Hello < nonexistent || echo Wanted',
+      'No such file or directory Wanted',
+      '',
+      'perl -pi -e "s,^.*:\s*,," out%%.txt' ],
+
+
+    [ 'Test 58 (cd)',
       'cd / ; pwd',
       '/' ],
 
-    [ 'Test 53',
+    [ 'Test 59',
       'cd / ; cd /usr ; pwd',
       '/usr' ],
 
 # cd without redirecting stdout
-    [ 'Test 54',
+    [ 'Test 60',
       'cd / ; cd /doesnotexist 2> /dev/null ; pwd',
       '/' ],
 
 # Fancy conditionals
-    [ 'Test 55',
+    [ 'Test 61',
       'cd / && pwd',
       '/' ],
 
-    [ 'Test 56',
+    [ 'Test 62',
       'echo go ; cd /doesnotexist 2> /dev/null > /dev/null && pwd',
       'go' ],
 
-    [ 'Test 57',
+    [ 'Test 63',
       'cd /doesnotexist 2> /dev/null > /dev/null || echo does not exist',
       'does not exist' ],
 
-    [ 'Test 58',
+    [ 'Test 64',
       'cd /tmp && cd / && pwd',
       '/' ],
 
-    [ 'Test 59',
+    [ 'Test 65',
       'cd / ; cd /doesnotexist 2> /dev/null > /dev/null ; pwd',
       '/' ]
 
