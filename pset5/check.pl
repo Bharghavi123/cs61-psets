@@ -526,6 +526,9 @@ sub run_sh61 ($;%) {
     my($delta) = Time::HiRes::time() - $before;
     $answer->{"time"} = $delta;
 
+    if (exists($answer->{"status"}) && exists($opt{"delay"}) && $opt{"delay"} > 0) {
+        Time::HiRes::usleep($opt{"delay"} * 1e6);
+    }
     if (exists($opt{"nokill"})) {
         $answer->{"pgrp"} = $run61_pid;
     } else {
@@ -610,7 +613,7 @@ sub run (@) {
     close(F);
 
     my($start) = Time::HiRes::time();
-    my($info) = run_sh61("../$sh -q", "stdin" => $tempfile, "stdout" => $outfile, "time_limit" => 15, "size_limit" => 1000, "dir" => "out", "nokill" => 1);
+    my($info) = run_sh61("../$sh -q", "stdin" => $tempfile, "stdout" => $outfile, "time_limit" => 15, "size_limit" => 1000, "dir" => "out", "nokill" => 1, "delay" => 0.05);
 
     system("cd out; $teardown >>$outfile 2>&1") if $teardown;
 
