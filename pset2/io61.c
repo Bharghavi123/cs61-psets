@@ -7,7 +7,7 @@
 #include <string.h>
 #include <string.h>
 
-#define CACHE_SIZE 16384
+#define CACHE_SIZE 32768
 // INVARIANT: assert(cache->start <= cache->size);
 // CACHE INVALID / EMPTY: cache->size == 0 => cache->start == cache->size
 
