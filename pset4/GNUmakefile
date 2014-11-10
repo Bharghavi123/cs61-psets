@@ -32,12 +32,11 @@ KERNEL_LINKER_FILES = link/kernel.ld link/shared.ld
 PROCESS_BINARIES = $(OBJDIR)/p-allocator $(OBJDIR)/p-allocator2 \
 	$(OBJDIR)/p-allocator3 $(OBJDIR)/p-allocator4 \
 	$(OBJDIR)/p-fork $(OBJDIR)/p-forkexit
-PROCESS_LINKER_FILES = link/process.ld link/shared.ld
-
 PROCESS_LIB_OBJS = $(OBJDIR)/lib.o $(OBJDIR)/process.o
 ALLOCATOR_OBJS = $(OBJDIR)/p-allocator.o $(PROCESS_LIB_OBJS)
 PROCESS_OBJS = $(OBJDIR)/p-allocator.o $(OBJDIR)/p-fork.o \
 	$(OBJDIR)/p-forkexit.o $(PROCESS_LIB_OBJS)
+PROCESS_LINKER_FILES = link/process.ld link/shared.ld
 
 
 # Generic rules for making object files
@@ -48,7 +47,7 @@ $(PROCESS_OBJS): $(OBJDIR)/%.o: %.c $(BUILDSTAMPS)
 $(OBJDIR)/%.o: %.c $(BUILDSTAMPS)
 	$(call compile,-DWEENSYOS_KERNEL -c $< -o $@,COMPILE)
 
-$(OBJDIR)/boot.o: boot.c $(BUILDSTAMPS)
+$(OBJDIR)/boot.o: $(OBJDIR)/%.o: boot.c $(BUILDSTAMPS)
 	$(call compile,-Os -fomit-frame-pointer -c $< -o $@,COMPILE)
 
 $(OBJDIR)/%.o: %.S $(BUILDSTAMPS)

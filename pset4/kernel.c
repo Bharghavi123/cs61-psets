@@ -286,7 +286,7 @@ void exception(x86_registers* reg) {
         break;
 
     case INT_SYS_PANIC:
-        panic("%s", (char*) current->p_registers.reg_eax);
+        panic(NULL);
         break;                  // will not be reached
 
     case INT_SYS_GETPID:

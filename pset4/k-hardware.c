@@ -648,16 +648,21 @@ void panic(const char* format, ...) {
     va_list val;
     va_start(val, format);
 
-    // Print panic message to both the screen and the log
-    int cpos = console_printf(CPOS(23, 0), 0xC000, "PANIC: ");
-    log_printf("PANIC: ");
+    if (format) {
+        // Print panic message to both the screen and the log
+        int cpos = console_printf(CPOS(23, 0), 0xC000, "PANIC: ");
+        log_printf("PANIC: ");
 
-    cpos = console_vprintf(cpos, 0xC000, format, val);
-    log_vprintf(format, val);
+        cpos = console_vprintf(cpos, 0xC000, format, val);
+        log_vprintf(format, val);
 
-    if (CCOL(cpos)) {
-        cpos = console_printf(cpos, 0xC000, "\n");
-        log_printf("\n");
+        if (CCOL(cpos)) {
+            cpos = console_printf(cpos, 0xC000, "\n");
+            log_printf("\n");
+        }
+    } else {
+        (void) console_printf(CPOS(23, 0), 0xC000, "PANIC");
+        log_printf("PANIC\n");
     }
 
     va_end(val);

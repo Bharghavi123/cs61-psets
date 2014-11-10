@@ -26,18 +26,20 @@ void panic(const char* format, ...) {
     va_list val;
     va_start(val, format);
     char buf[160];
-    int len = vsnprintf(buf, sizeof(buf), format, val);
+    memcpy(buf, "PANIC: ", 7);
+    int len = vsnprintf(&buf[7], sizeof(buf) - 7, format, val);
     va_end(val);
     if (len > 0 && buf[len - 1] != '\n')
         strcpy(buf + len - (len == (int) sizeof(buf) - 1), "\n");
-    syscall_1_arg(INT_SYS_PANIC, (uintptr_t) buf);
+    (void) console_printf(CPOS(23, 0), 0xC000, "%s", buf);
+    syscall_0_args(INT_SYS_PANIC);
  spinloop: goto spinloop;       // should never get here
 }
 
 void assert_fail(const char* file, int line, const char* msg) {
-    char buf[160];
-    (void) snprintf(buf, sizeof(buf), "%s:%d: assertion '%s' failed\n",
-                    file, line, msg);
-    syscall_1_arg(INT_SYS_PANIC, (uintptr_t) buf);
+    (void) console_printf(CPOS(23, 0), 0xC000,
+                          "PANIC: %s:%d: assertion '%s' failed\n",
+                          file, line, msg);
+    syscall_0_args(INT_SYS_PANIC);
  spinloop: goto spinloop;       // should never get here
 }
