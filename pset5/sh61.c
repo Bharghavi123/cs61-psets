@@ -14,7 +14,9 @@ struct command {
     char** argv;   // arguments, terminated by NULL
     pid_t pid;     // process ID running this command, -1 if none
     command* next; // next command to be processed
-    int op;        // control operator, -1 if none
+    int op;        // control operator, NULL if none
+    int condition;  // conditional operator, NULL if none
+    int pstatus;    // status of previous process, NULL if not set
 };
 
 
@@ -28,6 +30,8 @@ static command* command_alloc(void) {
     c->pid = -1;
     c->next = NULL;
     c->op = -1;
+    c->condition = -1;
+    c->pstatus = 0;
     return c;
 }
 
@@ -101,13 +105,55 @@ pid_t start_command(command* c, pid_t pgid) {
 //       - Cancel the list when you detect interruption.
 
 void run_list(command* c) {
-    
+
+    pid_t pid;
+
     command* current = c;
     while(current && current->argc) {
+
+        // If at the start of the conditional, we want to run in the background
+        if ((current->op == TOKEN_AND && current->condition != TOKEN_AND) 
+            || (current->op == TOKEN_OR && current->condition != TOKEN_OR))
+            pid = fork();        
+
+        // In the parent process, don't run the conditionals
+        if (pid)  
+            continue;
+        
+        // Check conditional statements
+        if (!WIFEXITED(current->pstatus)) {
+            current = current->next;
+            continue;
+        }
+
+        if (current->condition == TOKEN_AND && WEXITSTATUS(current->pstatus)) {
+            current = current->next;
+            continue;
+        }
+
+        if (current->condition == TOKEN_OR && !WEXITSTATUS(current->pstatus)) {
+            current = current->next;
+            continue;
+        }                        
+
         start_command(current, 0);
         int status;
-        if (current->op != TOKEN_BACKGROUND)
-            waitpid(current ->pid, &status, 0);
+        if (current->op != TOKEN_BACKGROUND) {
+            if (pid)
+                waitpid(pid, &status, 0);
+            else
+                waitpid(current->pid, &status, 0);
+            
+            if (current->next)
+                current->next->pstatus = status;
+        }
+
+        // If at the end of the conditional, we want to end the child process
+        if (!pid && ((current->op != TOKEN_AND && current->condition == TOKEN_AND) 
+            || (current->op != TOKEN_OR && current->condition == TOKEN_OR))) {
+            exit();
+        }
+
         current = current->next;
     }
 }
@@ -128,6 +174,10 @@ void eval_line(const char* s) {
             current->op = type;
             current->next = command_alloc();
             current = current->next;
+            
+            // Set conditional operator in next command to false
+            if (type == TOKEN_AND || type == TOKEN_OR)
+                current->condition = type;
         }
         else
             command_append_arg(current, token);
