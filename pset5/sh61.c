@@ -13,6 +13,8 @@ struct command {
     int argc;      // number of arguments
     char** argv;   // arguments, terminated by NULL
     pid_t pid;     // process ID running this command, -1 if none
+    command* next; // next command to be processed
+    int op;        // control operator, -1 if none
 };
 
 
@@ -24,6 +26,8 @@ static command* command_alloc(void) {
     c->argc = 0;
     c->argv = NULL;
     c->pid = -1;
+    c->next = NULL;
+    c->op = -1;
     return c;
 }
 
@@ -70,7 +74,9 @@ static void command_append_arg(command* c, char* word) {
 pid_t start_command(command* c, pid_t pgid) {
     (void) pgid;
     // Your code here!
-    fprintf(stderr, "start_command not done yet\n");
+    c->pid = fork();
+    if (!c->pid)
+        execvp(c->argv[0], c->argv);
     return c->pid;
 }
 
@@ -95,8 +101,15 @@ pid_t start_command(command* c, pid_t pgid) {
 //       - Cancel the list when you detect interruption.
 
 void run_list(command* c) {
-    start_command(c, 0);
-    fprintf(stderr, "run_command not done yet\n");
+    
+    command* current = c;
+    while(current && current->argc) {
+        start_command(current, 0);
+        int status;
+        if (current->op != TOKEN_BACKGROUND)
+            waitpid(current ->pid, &status, 0);
+        current = current->next;
+    }
 }
 
 
@@ -107,16 +120,30 @@ void eval_line(const char* s) {
     int type;
     char* token;
     // Your code here!
-
     // build the command
     command* c = command_alloc();
-    while ((s = parse_shell_token(s, &type, &token)) != NULL)
-        command_append_arg(c, token);
+    command* current = c;
+    while ((s = parse_shell_token(s, &type, &token)) != NULL) {
+        if (type) {
+            current->op = type;
+            current->next = command_alloc();
+            current = current->next;
+        }
+        else
+            command_append_arg(current, token);
+    }
 
     // execute it
     if (c->argc)
         run_list(c);
-    command_free(c);
+
+    // free all commands
+    current = c;
+    while (current) {
+        command* next = current->next;
+        command_free(current);
+        current = next; 
+    }
 }
 
 
