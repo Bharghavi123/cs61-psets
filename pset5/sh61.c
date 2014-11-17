@@ -106,7 +106,7 @@ pid_t start_command(command* c, pid_t pgid) {
 
 void run_list(command* c) {
 
-    pid_t pid;
+    pid_t pid = 0;
 
     command* current = c;
     while(current && current->argc) {
@@ -117,9 +117,12 @@ void run_list(command* c) {
             pid = fork();        
 
         // In the parent process, don't run the conditionals
-        if (pid)  
+        if (pid && (current->op == TOKEN_AND || current->op == TOKEN_OR
+            || current->condition == TOKEN_AND || current->condition == TOKEN_OR)) {
+            current = current->next;
             continue;
-        
+        }
+
         // Check conditional statements
         if (!WIFEXITED(current->pstatus)) {
             current = current->next;
@@ -134,24 +137,30 @@ void run_list(command* c) {
         if (current->condition == TOKEN_OR && !WEXITSTATUS(current->pstatus)) {
             current = current->next;
             continue;
-        }                        
-
+        }        
+ 
         start_command(current, 0);
         int status;
         if (current->op != TOKEN_BACKGROUND) {
-            if (pid)
-                waitpid(pid, &status, 0);
-            else
-                waitpid(current->pid, &status, 0);
+            waitpid(current->pid, &status, 0);
             
             if (current->next)
                 current->next->pstatus = status;
         }
 
-        // If at the end of the conditional, we want to end the child process
-        if (!pid && ((current->op != TOKEN_AND && current->condition == TOKEN_AND) 
-            || (current->op != TOKEN_OR && current->condition == TOKEN_OR))) {
-            exit();
+        // If at the end of the conditional...
+        if ((current->op != TOKEN_AND && current->condition == TOKEN_AND) 
+            || (current->op != TOKEN_OR && current->condition == TOKEN_OR)) {
+            
+            //... and if in a child process, we want to end it
+            if (!pid)
+                exit(EXIT_SUCCESS);
+
+            //... otherwise, we will put the process in the background if &
+            if (current->op != TOKEN_BACKGROUND) {
+                waitpid(pid, &status, 0);
+                pid = 0;
+            }
         }
 
         current = current->next;
