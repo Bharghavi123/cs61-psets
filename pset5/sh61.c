@@ -112,9 +112,10 @@ void run_list(command* c) {
     while(current && current->argc) {
 
         // If at the start of the conditional, we want to run in the background
-        if ((current->op == TOKEN_AND && current->condition != TOKEN_AND) 
-            || (current->op == TOKEN_OR && current->condition != TOKEN_OR))
-            pid = fork();        
+        if (((current->op == TOKEN_AND || (current->op == TOKEN_OR)) && current->condition != TOKEN_AND && current->condition != TOKEN_OR)) {
+            pid = fork();
+        }
+                    
 
         // In the parent process, don't run the conditionals
         if (pid && (current->op == TOKEN_AND || current->op == TOKEN_OR
