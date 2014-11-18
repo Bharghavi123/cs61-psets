@@ -112,56 +112,71 @@ void run_list(command* c) {
     while(current && current->argc) {
 
         // If at the start of the conditional, we want to run in the background
-        if (((current->op == TOKEN_AND || (current->op == TOKEN_OR)) && current->condition != TOKEN_AND && current->condition != TOKEN_OR)) {
+        if (((current->op == TOKEN_AND || (current->op == TOKEN_OR)) && 
+            current->condition != TOKEN_AND && current->condition != TOKEN_OR))
             pid = fork();
-        }
-                    
 
         // In the parent process, don't run the conditionals
-        if (pid && (current->op == TOKEN_AND || current->op == TOKEN_OR
-            || current->condition == TOKEN_AND || current->condition == TOKEN_OR)) {
+        if (pid && (current->op == TOKEN_AND || current->op == TOKEN_OR)) {
             current = current->next;
             continue;
         }
 
-        // Check conditional statements
-        if (!WIFEXITED(current->pstatus)) {
-            current = current->next;
-            continue;
-        }
+        if (!pid) {
 
-        if (current->condition == TOKEN_AND && WEXITSTATUS(current->pstatus)) {
-            current = current->next;
-            continue;
-        }
-
-        if (current->condition == TOKEN_OR && !WEXITSTATUS(current->pstatus)) {
-            current = current->next;
-            continue;
-        }        
- 
-        start_command(current, 0);
-        int status;
-        if (current->op != TOKEN_BACKGROUND) {
-            waitpid(current->pid, &status, 0);
-            
             if (current->next)
-                current->next->pstatus = status;
+                current->next->pstatus = current->pstatus;
+
+            // Check conditional statements
+            if (!WIFEXITED(current->pstatus)) {
+                current = current->next;
+                continue;
+            }
+
+            if (current->condition == TOKEN_AND && WEXITSTATUS(current->pstatus)) {
+                current = current->next;
+                continue;
+            }
+
+
+            if (current->condition == TOKEN_OR && !WEXITSTATUS(current->pstatus)) {
+                current = current->next;
+                continue;
+            }
+
+            //printf("command: %s %s\n", current->argv[0], current->argv[1]);
+
         }
+
+        int status;
 
         // If at the end of the conditional...
-        if ((current->op != TOKEN_AND && current->condition == TOKEN_AND) 
-            || (current->op != TOKEN_OR && current->condition == TOKEN_OR)) {
-            
+        if ((current->condition == TOKEN_AND || current->condition == TOKEN_OR) 
+            && current->op != TOKEN_AND && current->op != TOKEN_OR) {
+
             //... and if in a child process, we want to end it
-            if (!pid)
+            if (!pid) {
+                start_command(current, 0);
+                waitpid(current->pid, &status, 0);
                 exit(EXIT_SUCCESS);
+            }
 
             //... otherwise, we will put the process in the background if &
-            if (current->op != TOKEN_BACKGROUND) {
+            if (current->op != TOKEN_BACKGROUND) {           
                 waitpid(pid, &status, 0);
-                pid = 0;
             }
+
+            pid = 0;
+            current = current->next;
+            continue;
+        }      
+    
+
+        start_command(current, 0);
+        if (current->op != TOKEN_BACKGROUND) {
+            waitpid(current->pid, &status, 0);            
+            if (current->next)
+                current->next->pstatus = status;
         }
 
         current = current->next;
@@ -189,7 +204,7 @@ void eval_line(const char* s) {
             if (type == TOKEN_AND || type == TOKEN_OR)
                 current->condition = type;
         }
-        else
+        else 
             command_append_arg(current, token);
     }
 
