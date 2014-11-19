@@ -59,6 +59,19 @@ static void command_append_arg(command* c, char* word) {
 }
 
 
+// num_pipes(c)
+// Determine the number of pipes
+
+int num_pipes(command* c) {
+    int num = 0;
+    while (c && c->op == TOKEN_PIPE) {
+        num++;
+        c = c->next;
+    }
+    return num;
+}
+
+
 // COMMAND EVALUATION
 
 // start_command(c, pgid)
@@ -127,38 +140,65 @@ void run_list(command* c) {
     command* current = c;
     while(current && current->argc) {
 
-       
-        if (current->op != TOKEN_PIPE && current->pop == TOKEN_PIPE) {
-            current = current->next;
-            continue;
-        }
-
         // If the current commmand is followed by a || (pipe)
         if (current->op == TOKEN_PIPE) {
 
-            int fd[2];
+            // Count the number of pipes
+            int pipe_count = num_pipes(current); 
+            int fd[2 * pipe_count];
             pid_t cpid;
 
-            if (pipe(fd) == -1) {
-                perror("pipe");
-                exit(EXIT_FAILURE);
+            // Create all of the pipes
+            for (int i = 0; i < pipe_count; i++) {
+                if (pipe(fd + i*2) == -1) {
+                    perror("pipe");
+                    exit(EXIT_FAILURE);
+                }
             }
 
-            cpid = fork();
+            int cmd_count = 0;
+            while (current && (current->op == TOKEN_PIPE || current->pop == TOKEN_PIPE)) {
 
-            if (cpid == -1) {
-                perror("fork");
-                exit(EXIT_FAILURE);
+                cpid = fork();
+
+                if (cpid == -1) {
+                    perror("fork");
+                    exit(EXIT_FAILURE);
+                }
+
+                // If we are in the child process...
+                if (!cpid) {
+                    // If not the first commmand
+                    if (cmd_count)
+                        dup2(fd[cmd_count - 2], STDIN_FILENO);
+
+                    // If not the last command
+                    if (current->next && current->argc)
+                        dup2(fd[cmd_count + 1], STDOUT_FILENO);
+
+                    // Close file descriptors
+                    for (int i = 0; i < 2*pipe_count; i++) {
+                        close(fd[i]);
+                    }                    
+
+                    execvp(current->argv[0], current->argv);
+                }
+
+                current = current->next;
+                cmd_count += 2;
             }
 
-            if (!cpid) {
-                start_command(current, 0, fd);
-                exit(EXIT_SUCCESS);
-            } else {
-                wait(&status);
+            // Close file descriptors
+            for (int i = 0; i < 2*pipe_count; i++) {
+                close(fd[i]);
             }
 
-            current = current->next;
+            waitpid(cpid, &status, 0);
+
+            // for (int i = 0; i < pipe_count + 1; i++) {
+            //     wait(&status);
+            // }
+
             continue;
         }
 
