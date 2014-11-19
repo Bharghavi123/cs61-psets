@@ -15,7 +15,7 @@ struct command {
     pid_t pid;     // process ID running this command, -1 if none
     command* next; // next command to be processed
     int op;        // control operator, NULL if none
-    int condition;  // conditional operator, NULL if none
+    int pop;  // conditional operator, NULL if none
     int pstatus;    // status of previous process, NULL if not set
 };
 
@@ -30,7 +30,7 @@ static command* command_alloc(void) {
     c->pid = -1;
     c->next = NULL;
     c->op = -1;
-    c->condition = -1;
+    c->pop = -1;
     c->pstatus = 0;
     return c;
 }
@@ -75,10 +75,27 @@ static void command_append_arg(command* c, char* word) {
 //       its own process group (if `pgid == 0`). To avoid race conditions,
 //       this will require TWO calls to `setpgid`.
 
-pid_t start_command(command* c, pid_t pgid) {
+pid_t start_command(command* c, pid_t pgid, int fd[]) {
     (void) pgid;
     // Your code here!
     c->pid = fork();
+    if (fd) {
+        switch(c->pid) {
+            case 0:
+                printf("child\n");
+                close(fd[1]);
+                dup2(fd[0], 0);
+                close(fd[0]);
+                execvp(c->next->argv[0], c->next->argv);
+
+            default:
+                printf("parent\n");
+                close(fd[0]);
+                dup2(fd[1], 1);
+                close(fd[1]);
+                execvp(c->argv[0], c->argv);
+        }
+    }
     if (!c->pid)
         execvp(c->argv[0], c->argv);
     return c->pid;
@@ -107,13 +124,49 @@ pid_t start_command(command* c, pid_t pgid) {
 void run_list(command* c) {
 
     pid_t pid = 0;
+    int status;
 
     command* current = c;
     while(current && current->argc) {
 
+       
+        if (current->pop == TOKEN_PIPE) {
+            current = current->next;
+            continue;
+        }
+
+        // If the current commmand is followed by a || (pipe)
+        if (current->op == TOKEN_PIPE) {
+
+            int fd[2];
+            pid_t cpid;
+
+            if (pipe(fd) == -1) {
+                perror("pipe");
+                exit(EXIT_FAILURE);
+            }
+
+            cpid = fork();
+
+            if (cpid == -1) {
+                perror("fork");
+                exit(EXIT_FAILURE);
+            }
+
+            if (!cpid) {
+                current = current->next;
+                start_command(current, 0, fd);
+                exit(EXIT_SUCCESS);
+            }
+
+            current = current->next;
+            continue;
+        }
+
+
         // If at the start of the conditional, we want to run in the background
         if (((current->op == TOKEN_AND || (current->op == TOKEN_OR)) && 
-            current->condition != TOKEN_AND && current->condition != TOKEN_OR))
+            current->pop != TOKEN_AND && current->pop != TOKEN_OR))
             pid = fork();
 
         // In the parent process, don't run the conditionals
@@ -124,6 +177,7 @@ void run_list(command* c) {
 
         if (!pid) {
 
+            // Defualt the next command's status to the previous command
             if (current->next)
                 current->next->pstatus = current->pstatus;
 
@@ -133,13 +187,13 @@ void run_list(command* c) {
                 continue;
             }
 
-            if (current->condition == TOKEN_AND && WEXITSTATUS(current->pstatus)) {
+            if (current->pop == TOKEN_AND && WEXITSTATUS(current->pstatus)) {
                 current = current->next;
                 continue;
             }
 
 
-            if (current->condition == TOKEN_OR && !WEXITSTATUS(current->pstatus)) {
+            if (current->pop == TOKEN_OR && !WEXITSTATUS(current->pstatus)) {
                 current = current->next;
                 continue;
             }
@@ -148,15 +202,13 @@ void run_list(command* c) {
 
         }
 
-        int status;
-
         // If at the end of the conditional...
-        if ((current->condition == TOKEN_AND || current->condition == TOKEN_OR) 
+        if ((current->pop == TOKEN_AND || current->pop == TOKEN_OR) 
             && current->op != TOKEN_AND && current->op != TOKEN_OR) {
 
             //... and if in a child process, we want to end it
             if (!pid) {
-                start_command(current, 0);
+                start_command(current, 0, NULL);
                 waitpid(current->pid, &status, 0);
                 exit(EXIT_SUCCESS);
             }
@@ -172,7 +224,7 @@ void run_list(command* c) {
         }      
     
 
-        start_command(current, 0);
+        start_command(current, 0, NULL);
         if (current->op != TOKEN_BACKGROUND) {
             waitpid(current->pid, &status, 0);            
             if (current->next)
@@ -200,9 +252,8 @@ void eval_line(const char* s) {
             current->next = command_alloc();
             current = current->next;
             
-            // Set conditional operator in next command to false
-            if (type == TOKEN_AND || type == TOKEN_OR)
-                current->condition = type;
+            // Set previous operator for the next command
+            current->pop = type;
         }
         else 
             command_append_arg(current, token);
