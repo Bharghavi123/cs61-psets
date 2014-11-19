@@ -15,6 +15,7 @@ struct command {
     pid_t pid;     // process ID running this command, -1 if none
     command* next; // next command to be processed
     int op;        // control operator, NULL if none
+    char* rd_token; // redirect token (<, >, 2>)
     int pop;  // conditional operator, NULL if none
     int pstatus;    // status of previous process, NULL if not set
 };
@@ -30,6 +31,7 @@ static command* command_alloc(void) {
     c->pid = -1;
     c->next = NULL;
     c->op = -1;
+    c->rd_token = NULL;
     c->pop = -1;
     c->pstatus = 0;
     return c;
@@ -62,9 +64,9 @@ static void command_append_arg(command* c, char* word) {
 // num_pipes(c)
 // Determine the number of pipes
 
-int num_pipes(command* c) {
+int num_ops(command* c, int op) {
     int num = 0;
-    while (c && c->op == TOKEN_PIPE) {
+    while (c && c->op == op) {
         num++;
         c = c->next;
     }
@@ -124,11 +126,71 @@ void run_list(command* c) {
     command* current = c;
     while(current && current->argc) {
 
+    	if (current->op == TOKEN_REDIRECTION) {
+
+    		int redirect_count = num_ops(current, TOKEN_REDIRECTION);
+    		int fd[redirect_count];
+    		pid_t cpid;
+
+    		cpid = fork();
+
+    		if (!cpid) {
+				
+    			command* cmd = current;
+
+				for (int i = 0; i < redirect_count; i++) {
+					current = current->next;
+
+					if (!current || !current->argv[0])
+						exit(EXIT_FAILURE);
+
+					fd[i] = open(current->argv[0], O_RDWR | O_CREAT, 0666);
+					if (fd[i] == -1) {
+						printf("No such file or directory\n");
+						exit(EXIT_FAILURE);
+					}
+
+					// Redirect STDIN
+					if (!strcmp(current->rd_token, "<")) {
+						dup2(fd[i], STDIN_FILENO);
+					}
+					// Redirect STDOUT
+					else if (!strcmp(current->rd_token, ">")) {
+						dup2(fd[i], STDOUT_FILENO);
+					}
+					// Reidrect STDERR
+					else if (!strcmp(current->rd_token, "2>")) {
+						dup2(fd[i], STDERR_FILENO);
+					}
+
+					close(fd[i]);
+    			}
+
+    			execvp(cmd->argv[0], cmd->argv);
+    		}
+
+    		// Advanced to commands past redirection in parent
+    		for (int i = 0; i < redirect_count; i++) {
+    			current = current->next;
+    		}
+
+	        if (current && current->op != TOKEN_BACKGROUND) {
+	            waitpid(current->pid, &status, 0);          
+	            if (current->next) {
+	                current->next->pstatus = status;
+	            }
+	        }
+
+	        current = current->next;
+	        continue;
+    	}
+
+
         // If the current commmand is followed by a || (pipe)
         if (current->op == TOKEN_PIPE) {
 
             // Count the number of pipes
-            int pipe_count = num_pipes(current); 
+            int pipe_count = num_ops(current, TOKEN_PIPE); 
             int fd[2 * pipe_count];
             pid_t cpid;
 
@@ -143,6 +205,8 @@ void run_list(command* c) {
             int cmd_count = 0;
 
             // Process the pipe commands
+
+
             while (current && (!cmd_count || current->pop == TOKEN_PIPE)) {
 
                 // First, fork!
@@ -256,8 +320,9 @@ void run_list(command* c) {
         start_command(current, 0);
         if (current->op != TOKEN_BACKGROUND) {
             waitpid(current->pid, &status, 0);            
-            if (current->next)
+            if (current->next) {
                 current->next->pstatus = status;
+            }
         }
 
         current = current->next;
@@ -283,6 +348,9 @@ void eval_line(const char* s) {
             
             // Set previous operator for the next command
             current->pop = type;
+            if (type == TOKEN_REDIRECTION) {
+            	current->rd_token = token;
+            }
         }
         else 
             command_append_arg(current, token);
