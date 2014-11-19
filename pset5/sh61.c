@@ -153,6 +153,7 @@ void run_list(command* c) {
                     exit(EXIT_FAILURE);
                 }
 
+
                 // If we are in the child process...
                 if (!cpid) {
                     // If not the first commmand
@@ -171,6 +172,8 @@ void run_list(command* c) {
                     // Execute the command
                     execvp(current->argv[0], current->argv);
                 }
+
+                current->pid = cpid;
 
                 // Move on to the next command, and increment cmd_count
                 current = current->next;
@@ -289,9 +292,12 @@ void eval_line(const char* s) {
     if (c->argc)
         run_list(c);
 
+    int status;
+
     // free all commands
     current = c;
     while (current) {
+        waitpid(current->pid, &status, 0);
         command* next = current->next;
         command_free(current);
         current = next; 
