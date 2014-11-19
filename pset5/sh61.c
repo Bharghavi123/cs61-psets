@@ -88,26 +88,10 @@ int num_pipes(command* c) {
 //       its own process group (if `pgid == 0`). To avoid race conditions,
 //       this will require TWO calls to `setpgid`.
 
-pid_t start_command(command* c, pid_t pgid, int fd[]) {
+pid_t start_command(command* c, pid_t pgid) {
     (void) pgid;
     // Your code here!
     c->pid = fork();
-    if (fd && c->next) {
-        c->next->pid = c->pid;
-        switch(c->pid) {
-            case 0:
-                close(fd[1]);
-                dup2(fd[0], STDIN_FILENO);
-                close(fd[0]);
-                execvp(c->next->argv[0], c->next->argv);
-
-            default:
-                close(fd[0]);
-                dup2(fd[1], STDOUT_FILENO);                
-                close(fd[1]);
-                execvp(c->argv[0], c->argv);
-        }
-    }
     if (!c->pid)
         execvp(c->argv[0], c->argv);
     return c->pid;
@@ -157,8 +141,11 @@ void run_list(command* c) {
             }
 
             int cmd_count = 0;
-            while (current && (current->op == TOKEN_PIPE || current->pop == TOKEN_PIPE)) {
 
+            // Process the pipe commands
+            while (current && (!cmd_count || current->pop == TOKEN_PIPE)) {
+
+                // First, fork!
                 cpid = fork();
 
                 if (cpid == -1) {
@@ -173,7 +160,7 @@ void run_list(command* c) {
                         dup2(fd[cmd_count - 2], STDIN_FILENO);
 
                     // If not the last command
-                    if (current->next && current->argc)
+                    if (current->next)
                         dup2(fd[cmd_count + 1], STDOUT_FILENO);
 
                     // Close file descriptors
@@ -181,9 +168,11 @@ void run_list(command* c) {
                         close(fd[i]);
                     }                    
 
+                    // Execute the command
                     execvp(current->argv[0], current->argv);
                 }
 
+                // Move on to the next command, and increment cmd_count
                 current = current->next;
                 cmd_count += 2;
             }
@@ -193,11 +182,12 @@ void run_list(command* c) {
                 close(fd[i]);
             }
 
+            // Wait for all child processes to finish
             waitpid(cpid, &status, 0);
 
-            // for (int i = 0; i < pipe_count + 1; i++) {
-            //     wait(&status);
-            // }
+            // Set the status for next command
+             if (current)
+                current->pstatus = status;
 
             continue;
         }
@@ -236,9 +226,6 @@ void run_list(command* c) {
                 current = current->next;
                 continue;
             }
-
-            //printf("command: %s %s\n", current->argv[0], current->argv[1]);
-
         }
 
         // If at the end of the conditional...
@@ -247,7 +234,7 @@ void run_list(command* c) {
 
             //... and if in a child process, we want to end it
             if (!pid) {
-                start_command(current, 0, NULL);
+                start_command(current, 0);
                 waitpid(current->pid, &status, 0);
                 exit(EXIT_SUCCESS);
             }
@@ -263,7 +250,7 @@ void run_list(command* c) {
         }      
     
 
-        start_command(current, 0, NULL);
+        start_command(current, 0);
         if (current->op != TOKEN_BACKGROUND) {
             waitpid(current->pid, &status, 0);            
             if (current->next)
