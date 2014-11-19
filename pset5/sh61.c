@@ -79,19 +79,18 @@ pid_t start_command(command* c, pid_t pgid, int fd[]) {
     (void) pgid;
     // Your code here!
     c->pid = fork();
-    if (fd) {
+    if (fd && c->next) {
+        c->next->pid = c->pid;
         switch(c->pid) {
             case 0:
-                printf("child\n");
                 close(fd[1]);
-                dup2(fd[0], 0);
+                dup2(fd[0], STDIN_FILENO);
                 close(fd[0]);
                 execvp(c->next->argv[0], c->next->argv);
 
             default:
-                printf("parent\n");
                 close(fd[0]);
-                dup2(fd[1], 1);
+                dup2(fd[1], STDOUT_FILENO);                
                 close(fd[1]);
                 execvp(c->argv[0], c->argv);
         }
@@ -100,7 +99,6 @@ pid_t start_command(command* c, pid_t pgid, int fd[]) {
         execvp(c->argv[0], c->argv);
     return c->pid;
 }
-
 
 // run_list(c)
 //    Run the command list starting at `c`.
@@ -130,7 +128,7 @@ void run_list(command* c) {
     while(current && current->argc) {
 
        
-        if (current->pop == TOKEN_PIPE) {
+        if (current->op != TOKEN_PIPE && current->pop == TOKEN_PIPE) {
             current = current->next;
             continue;
         }
@@ -154,9 +152,10 @@ void run_list(command* c) {
             }
 
             if (!cpid) {
-                current = current->next;
                 start_command(current, 0, fd);
                 exit(EXIT_SUCCESS);
+            } else {
+                wait(&status);
             }
 
             current = current->next;
