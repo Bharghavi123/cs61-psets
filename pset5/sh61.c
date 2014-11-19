@@ -292,12 +292,9 @@ void eval_line(const char* s) {
     if (c->argc)
         run_list(c);
 
-    int status;
-
     // free all commands
     current = c;
     while (current) {
-        waitpid(current->pid, &status, 0);
         command* next = current->next;
         command_free(current);
         current = next; 
@@ -365,6 +362,12 @@ int main(int argc, char* argv[]) {
 
         // Handle zombie processes and/or interrupt requests
         // Your code here!
+        int status;
+        int pid = 1;
+
+        while (pid != -1 && pid != 0) {
+            pid = waitpid(-1, &status, WNOHANG);
+        }
     }
 
     return 0;
