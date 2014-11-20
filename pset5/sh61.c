@@ -150,7 +150,7 @@ void run_list(command* c) {
 					if (!strcmp(current->rd_token, "<")) {
                         fd[i] = open(current->argv[0], O_RDONLY);
                         if (fd[i] == -1) {
-                            perror(strerror(errno));
+                            printf("No such file or directory\n");
                             exit(EXIT_FAILURE);
                         }
 						dup2(fd[i], STDIN_FILENO);
@@ -160,7 +160,7 @@ void run_list(command* c) {
 					else if (!strcmp(current->rd_token, ">")) {
                         fd[i] = open(current->argv[0], O_WRONLY | O_CREAT, 0666);
                         if (fd[i] == -1) {
-                            printf("No such file or directory, error %s\n", strerror(errno));
+                            perror(strerror(errno));
                             exit(EXIT_FAILURE);
                         }
 						dup2(fd[i], STDOUT_FILENO);
@@ -169,7 +169,7 @@ void run_list(command* c) {
 					else if (!strcmp(current->rd_token, "2>")) {
                         fd[i] = open(current->argv[0], O_WRONLY | O_CREAT, 0666);
                         if (fd[i] == -1) {
-                            printf("No such file or directory, error %s\n", strerror(errno));
+                            perror(strerror(errno));
                             exit(EXIT_FAILURE);
                         }                        
 						dup2(fd[i], STDERR_FILENO);
