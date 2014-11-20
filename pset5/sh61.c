@@ -141,30 +141,115 @@ void run_list(command* c) {
 				for (int i = 0; i < redirect_count; i++) {
 					current = current->next;
 
-					if (!current || !current->argv[0])
+					if (!current || !current->argv[0]) {
+                        printf("No such file or directory\n");
 						exit(EXIT_FAILURE);
-
-					fd[i] = open(current->argv[0], O_RDWR | O_CREAT, 0666);
-					if (fd[i] == -1) {
-						printf("No such file or directory\n");
-						exit(EXIT_FAILURE);
-					}
+                    }
 
 					// Redirect STDIN
 					if (!strcmp(current->rd_token, "<")) {
+                        fd[i] = open(current->argv[0], O_RDONLY);
+                        if (fd[i] == -1) {
+                            perror(strerror(errno));
+                            exit(EXIT_FAILURE);
+                        }
 						dup2(fd[i], STDIN_FILENO);
 					}
+
 					// Redirect STDOUT
 					else if (!strcmp(current->rd_token, ">")) {
+                        fd[i] = open(current->argv[0], O_WRONLY | O_CREAT, 0666);
+                        if (fd[i] == -1) {
+                            printf("No such file or directory, error %s\n", strerror(errno));
+                            exit(EXIT_FAILURE);
+                        }
 						dup2(fd[i], STDOUT_FILENO);
-					}
+                    }
 					// Reidrect STDERR
 					else if (!strcmp(current->rd_token, "2>")) {
+                        fd[i] = open(current->argv[0], O_WRONLY | O_CREAT, 0666);
+                        if (fd[i] == -1) {
+                            printf("No such file or directory, error %s\n", strerror(errno));
+                            exit(EXIT_FAILURE);
+                        }                        
 						dup2(fd[i], STDERR_FILENO);
 					}
 
 					close(fd[i]);
     			}
+
+                // If the current commmand is followed by a || (pipe)
+                if (current->op == TOKEN_PIPE) {
+
+                    // Count the number of pipes
+                    int pipe_count = num_ops(current, TOKEN_PIPE); 
+                    int fd[2 * pipe_count];
+                    pid_t cpid;
+
+                    // Create all of the pipes
+                    for (int i = 0; i < pipe_count; i++) {
+                        if (pipe(fd + i*2) == -1) {
+                            perror("pipe");
+                            exit(EXIT_FAILURE);
+                        }
+                    }
+
+                    int cmd_count = 0;
+
+                    // Process the pipe commands
+                    while (current && (!cmd_count || current->pop == TOKEN_PIPE)) {
+
+                        // First, fork!
+                        cpid = fork();
+
+                        if (cpid == -1) {
+                            perror("fork");
+                            exit(EXIT_FAILURE);
+                        }
+
+
+                        // If we are in the child process...
+                        if (!cpid) {
+                            // If not the first commmand
+                            if (cmd_count)
+                                dup2(fd[cmd_count - 2], STDIN_FILENO);
+
+                            // If not the last command
+                            if (current->next)
+                                dup2(fd[cmd_count + 1], STDOUT_FILENO);
+
+                            // Close file descriptors
+                            for (int i = 0; i < 2*pipe_count; i++) {
+                                close(fd[i]);
+                            }                    
+
+                            // Execute the 
+                            if (cmd_count)
+                                execvp(current->argv[0], current->argv);
+                            execvp(cmd->argv[0], cmd->argv);
+                        }
+
+                        current->pid = cpid;
+
+                        // Move on to the next command, and increment cmd_count
+                        current = current->next;
+                        cmd_count += 2;
+                    }
+
+                    // Close file descriptors
+                    for (int i = 0; i < 2*pipe_count; i++) {
+                        close(fd[i]);
+                    }
+
+                    // Wait for all child processes to finish
+                    waitpid(cpid, &status, 0);
+
+                    // Set the status for next command
+                     if (current)
+                        current->pstatus = status;
+
+                    continue;
+                }
 
     			execvp(cmd->argv[0], cmd->argv);
     		}
@@ -173,6 +258,13 @@ void run_list(command* c) {
     		for (int i = 0; i < redirect_count; i++) {
     			current = current->next;
     		}
+
+            if (current->op == TOKEN_PIPE) {
+                int pipe_count = num_ops(current, TOKEN_PIPE); 
+                for (int i = 0; i < pipe_count; i++) {
+                    current = current->next;
+                }
+            }
 
 	        if (current && current->op != TOKEN_BACKGROUND) {
 	            waitpid(current->pid, &status, 0);          
