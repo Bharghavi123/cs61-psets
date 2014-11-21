@@ -23,6 +23,11 @@ if (!-x '/bin/md5sum' && !-x '/usr/bin/md5sum' && -x '/sbin/md5') {
     $md5sum = '/sbin/md5';
 }
 
+sub CMD_INIT ()           { "CMD_INIT" }
+sub CMD_CLEANUP ()        { "CMD_CLEANUP" }
+sub CMD_FILE ()           { "CMD_FILE" }
+sub CMD_OUTPUT_FILTER ()  { "CMD_OUTPUT_FILTER" }
+
 @tests = (
 # Execute
     [ # 0. Test title
@@ -46,8 +51,7 @@ if (!-x '/bin/md5sum' && !-x '/usr/bin/md5sum' && -x '/sbin/md5') {
     [ 'Test 3',
       'cat f3.txt',
       'Triple Hooray',
-      # setup:
-      'echo Triple Hooray > f3.txt' ],
+      CMD_INIT => 'echo Triple Hooray > f3.txt' ],
 
     [ 'Test 4',
       "echo Line 1\necho Line 2\necho Line 3",
@@ -57,24 +61,21 @@ if (!-x '/bin/md5sum' && !-x '/usr/bin/md5sum' && -x '/sbin/md5') {
     [ 'Test 5 (Background commands)',
       'cp f%%a.txt f%%b.txt &',
       'Copied',
-      # setup/cleanup:
-      'echo Copied > f%%a.txt; echo Original > f%%b.txt',
-      'sleep 0.1 && cat f%%b.txt' ],
+      CMD_INIT => 'echo Copied > f%%a.txt; echo Original > f%%b.txt',
+      CMD_CLEANUP => 'sleep 0.1 && cat f%%b.txt' ],
 
     [ 'Test 6',
       'sh -c "sleep 0.2; test -r f%%b.txt && rm -f f%%a.txt" &',
       'Still here',
-      # setup/cleanup:
-      'echo Still here > f%%a.txt; echo > f%%b.txt',
-      'rm f%%b.txt && sleep 0.3 && cat f%%a.txt' ],
+      CMD_INIT => 'echo Still here > f%%a.txt; echo > f%%b.txt',
+      CMD_CLEANUP => 'rm f%%b.txt && sleep 0.3 && cat f%%a.txt' ],
 
     # Check that background commands are run in the background
     [ 'Test 7',
       'sleep 2 &',
       '1',
-      # setup/cleanup:
-      '',
-      'ps T | grep sleep | grep -v grep | head -n 1 | wc -l' ],
+      CMD_INIT => '',
+      CMD_CLEANUP => 'ps T | grep sleep | grep -v grep | head -n 1 | wc -l' ],
 
 
     [ 'Test 8 (Sequencing)',
@@ -204,7 +205,8 @@ if (!-x '/bin/md5sum' && !-x '/usr/bin/md5sum' && -x '/sbin/md5') {
 
     [ 'Test 34',
       'sleep 2 & sleep 0.2; ps T | grep sleep | grep -v grep | head -n 1 | wc -l',
-      '1' ],
+      '1',
+      CMD_FILE => 1 ],
 
     [ 'Test 35',
       'echo Sedi | tr d m ; echo Calan | tr a o',
@@ -213,9 +215,9 @@ if (!-x '/bin/md5sum' && !-x '/usr/bin/md5sum' && -x '/sbin/md5') {
     [ 'Test 36',
       '../sh61 -q cmd%%.sh &',
       'Hello 1',
-      # setup/cleanup:
-      'echo "echo Hello; sleep 0.4" > cmd%%.sh',
-      'echo "sleep 0.2 ; ps T | grep sleep | grep -v grep | head -n 1 | wc -l" | ../sh61 -q'],
+      CMD_INIT => 'echo "echo Hello; sleep 0.4" > cmd%%.sh',
+      CMD_CLEANUP => 'echo "sleep 0.2 ; ps T | grep sleep | grep -v grep | head -n 1 | wc -l" > cmd%%b.sh; ../sh61 -q cmd%%b.sh',
+      CMD_FILE => 1 ],
 
     [ 'Test 37',
       'true | true && echo True',
@@ -249,16 +251,12 @@ if (!-x '/bin/md5sum' && !-x '/usr/bin/md5sum' && -x '/sbin/md5') {
     [ 'Test 44 (Zombies)',
       "sleep 0.05 &\nsleep 0.1\nps T",
       '',
-      # setup/cleanup:
-      '',
-      'mv out%%.txt tmp%%.txt; grep defunct tmp%%.txt | grep -v grep'],
+      CMD_OUTPUT_FILTER => 'grep defunct | grep -v grep'],
 
     [ 'Test 45',
       "sleep 0.05 & sleep 0.05 & sleep 0.05 & sleep 0.05 &\nsleep 0.07\nsleep 0.07\nps T",
       '',
-      # setup/cleanup:
-      '',
-      'mv out%%.txt tmp%%.txt; grep defunct tmp%%.txt | grep -v grep'],
+      CMD_OUTPUT_FILTER => 'grep defunct | grep -v grep'],
 
 
     [ 'Test 46 (Redirection)',
@@ -369,8 +367,39 @@ if (!-x '/bin/md5sum' && !-x '/usr/bin/md5sum' && -x '/sbin/md5') {
 
     [ 'Test 65',
       'cd / ; cd /doesnotexist 2> /dev/null > /dev/null ; pwd',
-      '/' ]
+      '/' ],
 
+
+    [ 'Test 66 (More tests)',
+      'echo Ignored | echo Desired',
+      'Desired' ],
+
+    [ 'Test 67',
+      'cat unwanted.txt | cat < wanted.txt',
+      'Wanted',
+      CMD_INIT => 'echo Unwanted > unwanted.txt; echo Wanted > wanted.txt' ],
+
+    [ 'Test 68',
+      'cat < wanted.txt | cat > output.txt',
+      'output.txt is Wanted',
+      CMD_INIT => 'echo Wanted > wanted.txt',
+      CMD_CLEANUP => 'echo output.txt is; cat output.txt' ],
+
+    [ 'Test 69',
+      'cat < xoqted.txt | tr xoq Wan | cat > output.txt',
+      'output.txt is Wanted',
+      CMD_INIT => 'echo xoqted > xoqted.txt',
+      CMD_CLEANUP => 'echo output.txt is; cat output.txt' ],
+
+    [ 'Test 70',
+      'echo Ignored | cat < lower.txt | tr A-Z a-z',
+      'lower',
+      CMD_INIT => 'echo LOWER > lower.txt' ],
+
+    [ 'Test 71',
+      'sleep 0.2 | wc -c | sed s/0/Second/ & sleep 0.1 | wc -c | sed s/0/First/',
+      'First Second',
+      CMD_CLEANUP => 'sleep 0.25']
 
     # Command: sleep 5
     # Setup: output current unix time
@@ -475,10 +504,12 @@ sub run_sh61 ($;%) {
         setpgrp(0, 0);
         defined($dir) && chdir($dir);
 
-        my($fn) = exists($opt{"stdin"}) ? $opt{"stdin"} : "/dev/null";
-        my($fd) = POSIX::open($fn, O_RDONLY);
-        POSIX::dup2($fd, 0);
-        POSIX::close($fd) if $fd != 0;
+        my($fn) = defined($opt{"stdin"}) ? $opt{"stdin"} : "/dev/null";
+        if (defined($fn) && $fn ne "/dev/stdin") {
+            my($fd) = POSIX::open($fn, O_RDONLY);
+            POSIX::dup2($fd, 0);
+            POSIX::close($fd) if $fd != 0;
+        }
 
         close(OR);
         open(OW, ">", $outfile) || die if defined($outfile) && $outfile ne "pipe";
@@ -600,10 +631,18 @@ sub run (@) {
         $_[$i] =~ s/\%\%/$testnumber/g;
     }
 
-    my($desc, $in, $want, $setup, $teardown) = @_;
+    my($desc, $in, $want) = @_;
+    my(%opts);
+    if (@_ > 3 && substr($_[3], 0, 4) ne "CMD_") {
+        $opts{CMD_INIT} = $_[3] if $_[3];
+        $opts{CMD_CLEANUP} = $_[4] if $_[4];
+    } elsif (@_ > 3) {
+        %opts = @_[3..(@_ - 1)];
+    }
+
     $ntest++;
     kill_sleeps();
-    system("cd out; $setup") if $setup;
+    system("cd out; " . $opts{CMD_INIT}) if $opts{CMD_INIT};
 
     print OUT "$desc: ";
     my($tempfile) = "main$testnumber.sh";
@@ -613,9 +652,14 @@ sub run (@) {
     close(F);
 
     my($start) = Time::HiRes::time();
-    my($info) = run_sh61("../$sh -q", "stdin" => $tempfile, "stdout" => $outfile, "time_limit" => 15, "size_limit" => 1000, "dir" => "out", "nokill" => 1, "delay" => 0.05);
+    my($cmd) = "../$sh -q" . ($opts{CMD_FILE} ? " $tempfile" : "");
+    my($stdin) = $opts{CMD_FILE} ? "/dev/stdin" : $tempfile;
+    my($info) = run_sh61($cmd, "stdin" => $stdin, "stdout" => $outfile, "time_limit" => 15, "size_limit" => 1000, "dir" => "out", "nokill" => 1, "delay" => 0.05);
 
-    system("cd out; $teardown >>$outfile 2>&1") if $teardown;
+    system("cd out; { " . $opts{CMD_CLEANUP} . "; } >>$outfile 2>&1")
+        if $opts{CMD_CLEANUP};
+    system("cd out; mv $outfile ${outfile}~; { " . $opts{CMD_OUTPUT_FILTER} . "; } <${outfile}~ >$outfile 2>&1")
+        if $opts{CMD_OUTPUT_FILTER};
 
     kill 9, -$info->{"pgrp"} if exists($info->{"pgrp"});
 
