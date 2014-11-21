@@ -129,7 +129,7 @@ void run_list(command* c) {
 
         if (!strcmp(current->argv[0], "cd")) {
             if(chdir(current->argv[1]))
-                // perror(strerror(errno));
+                perror(strerror(errno));
             current = current->next;
         }
 
@@ -470,7 +470,6 @@ void eval_line(const char* s) {
 
 
 int main(int argc, char* argv[]) {
-    chdir("/");
     FILE* command_file = stdin;
     int quiet = 0;
 
