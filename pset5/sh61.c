@@ -20,6 +20,14 @@ struct command {
     int pstatus;    // status of previous process, NULL if not set
 };
 
+sig_atomic_t handler_flag = 0;
+
+// signal_handler
+void handler(int sig) {
+    (void) sig;
+    handler_flag = 1;
+}
+
 
 // command_alloc()
 //    Allocate and return a new command structure.
@@ -94,6 +102,7 @@ pid_t start_command(command* c, pid_t pgid) {
     (void) pgid;
     // Your code here!
     c->pid = fork();
+    setpgid(c->pid, c->pid);
     if (!c->pid) {
         execvp(c->argv[0], c->argv);
     }
@@ -127,6 +136,10 @@ void run_list(command* c) {
     command* current = c;
     while(current && current->argc) {
 
+        // If we recieved a Control-C Interrupt signal on the previous command
+        if (WIFSIGNALED(status) != 0 & WTERMSIG(status) == SIGINT)
+            break;
+
     	if (current->op == TOKEN_REDIRECTION) {
 
     		int redirect_count = num_ops(current, TOKEN_REDIRECTION);
@@ -134,7 +147,6 @@ void run_list(command* c) {
     		pid_t cpid;
 
     		cpid = fork();
-
     		if (!cpid) {
 				
     			command* cmd = current;
@@ -314,8 +326,6 @@ void run_list(command* c) {
             int cmd_count = 0;
 
             // Process the pipe commands
-
-
             while (current && (!cmd_count || current->pop == TOKEN_PIPE)) {
 
                 // First, fork!
@@ -326,6 +336,7 @@ void run_list(command* c) {
                     exit(EXIT_FAILURE);
                 }
 
+                setpgid(current->pid, current->pid);
 
                 // If we are in the child process...
                 if (!cpid) {
@@ -358,8 +369,11 @@ void run_list(command* c) {
                 close(fd[i]);
             }
 
+
+            set_foreground(cpid);
             // Wait for all child processes to finish
             waitpid(cpid, &status, 0);
+            set_foreground(0);
 
             // Set the status for next command
              if (current)
@@ -411,12 +425,14 @@ void run_list(command* c) {
             //... and if in a child process, we want to end it
             if (!pid) {
                 start_command(current, 0);
+                set_foreground(current->pid);           
                 waitpid(current->pid, &status, 0);
+                set_foreground(0);
                 exit(EXIT_SUCCESS);
             }
 
             //... otherwise, we will put the process in the background if &
-            if (current->op != TOKEN_BACKGROUND) {           
+            if (current->op != TOKEN_BACKGROUND) {
                 waitpid(pid, &status, 0);
             }
 
@@ -428,7 +444,9 @@ void run_list(command* c) {
 
         start_command(current, 0);
         if (current->op != TOKEN_BACKGROUND) {
-            waitpid(current->pid, &status, 0);            
+            set_foreground(current->pid);
+            waitpid(current->pid, &status, 0); 
+            set_foreground(0);           
             if (current->next) {
                 current->next->pstatus = status;
             }
@@ -503,6 +521,7 @@ int main(int argc, char* argv[]) {
     //   into the foreground
     set_foreground(0);
     handle_signal(SIGTTOU, SIG_IGN);
+    signal(SIGINT, handler);
 
     char buf[BUFSIZ];
     int bufpos = 0;
@@ -514,6 +533,11 @@ int main(int argc, char* argv[]) {
             printf("sh61[%d]$ ", getpid());
             fflush(stdout);
             needprompt = 0;
+        }
+
+        if (handler_flag) {
+            handler_flag = 0;
+            continue;
         }
 
         // Read a string, checking for error or EOF
