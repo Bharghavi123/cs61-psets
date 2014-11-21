@@ -130,13 +130,13 @@ pid_t start_command(command* c, pid_t pgid) {
 void run_list(command* c) {
 
     pid_t pid = 0;
-    int status;
+    int status = 0;
 
     command* current = c;
     while(current && current->argc) {
 
         // If we recieved a Control-C Interrupt signal on the previous command
-        if (WIFSIGNALED(status) != 0 & WTERMSIG(status) == SIGINT)
+        if ((WIFSIGNALED(status) != 0) && (WTERMSIG(status) == SIGINT))
             break;
 
     	if (current->op == TOKEN_REDIRECTION) {
