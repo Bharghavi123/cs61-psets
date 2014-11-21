@@ -2,12 +2,12 @@ README for CS 61 Problem Set 5
 ------------------------------
 YOU MUST FILL OUT THIS FILE BEFORE SUBMITTING!
 
-YOUR NAME:
-YOUR HUID:
+YOUR NAME: Jordan Canedy
+YOUR HUID: 70871939
 
 (Optional, for partner)
-YOUR NAME:
-YOUR HUID:
+YOUR NAME: Yuan Jiang
+YOUR HUID: 20864400
 
 OTHER COLLABORATORS AND CITATIONS (if any):
 
