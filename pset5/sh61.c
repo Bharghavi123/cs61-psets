@@ -127,12 +127,6 @@ void run_list(command* c) {
     command* current = c;
     while(current && current->argc) {
 
-        if (!strcmp(current->argv[0], "cd")) {
-            if(chdir(current->argv[1]))
-                perror(strerror(errno));
-            current = current->next;
-        }
-
     	if (current->op == TOKEN_REDIRECTION) {
 
     		int redirect_count = num_ops(current, TOKEN_REDIRECTION);
@@ -258,6 +252,14 @@ void run_list(command* c) {
                     continue;
                 }
 
+                if (!strcmp(current->argv[0], "cd")) {
+                    if(chdir(current->argv[1])) {
+                        perror(strerror(errno));
+                        exit(EXIT_FAILURE);
+                    }
+                    exit(EXIT_SUCCESS);
+                }
+
     			execvp(cmd->argv[0], cmd->argv);
     		}
 
@@ -283,6 +285,14 @@ void run_list(command* c) {
 	        current = current->next;
 	        continue;
     	}
+
+
+        if (!strcmp(current->argv[0], "cd")) {
+            if(chdir(current->argv[1]))
+                perror(strerror(errno));
+            current = current->next;
+            continue;
+        }
 
 
         // If the current commmand is followed by a || (pipe)
