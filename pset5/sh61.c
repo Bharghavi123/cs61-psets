@@ -20,12 +20,11 @@ struct command {
     int pstatus;    // status of previous process, NULL if not set
 };
 
-sig_atomic_t handler_flag = 0;
-
 // signal_handler
 void handler(int sig) {
     (void) sig;
-    handler_flag = 1;
+    printf("\nsh61[%d]$ ", getpid());
+    fflush(stdout);
 }
 
 
@@ -533,11 +532,6 @@ int main(int argc, char* argv[]) {
             printf("sh61[%d]$ ", getpid());
             fflush(stdout);
             needprompt = 0;
-        }
-
-        if (handler_flag) {
-            handler_flag = 0;
-            continue;
         }
 
         // Read a string, checking for error or EOF
