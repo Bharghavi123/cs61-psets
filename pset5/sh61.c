@@ -94,8 +94,9 @@ pid_t start_command(command* c, pid_t pgid) {
     (void) pgid;
     // Your code here!
     c->pid = fork();
-    if (!c->pid)
+    if (!c->pid) {
         execvp(c->argv[0], c->argv);
+    }
     return c->pid;
 }
 
@@ -125,6 +126,12 @@ void run_list(command* c) {
 
     command* current = c;
     while(current && current->argc) {
+
+        if (!strcmp(current->argv[0], "cd")) {
+            if(chdir(current->argv[1]))
+                // perror(strerror(errno));
+            current = current->next;
+        }
 
     	if (current->op == TOKEN_REDIRECTION) {
 
@@ -463,6 +470,7 @@ void eval_line(const char* s) {
 
 
 int main(int argc, char* argv[]) {
+    chdir("/");
     FILE* command_file = stdin;
     int quiet = 0;
 
