@@ -17,6 +17,15 @@ static const char* pong_port = PONG_PORT;
 static const char* pong_user = PONG_USER;
 static struct addrinfo* pong_addr;
 
+// Maximum number of concurrent threads
+#define MAX_THREADS 30
+
+// concurrent threads
+int concurent_threads = 0;
+
+
+// indicate whether currently in loss period
+int loss_period = 0;
 
 // TIME HELPERS
 double elapsed_base = 0;
@@ -53,6 +62,40 @@ struct http_connection {
     char buf[BUFSIZ];       // Response buffer
     size_t len;             // Length of response buffer
 };
+
+// connection_table
+//      This object represents available connections
+typedef struct connection_table connection_table;
+struct connection_table
+{
+    http_connection* connection;
+    connection_table* next;
+
+};
+
+void insert_connection(connection_table* table, http_connection* conn) {
+    connection_table* entry = malloc(sizeof(connection_table));
+    entry->connection = conn;
+    entry->next = table;
+    table = entry;
+}
+
+http_connection* remove_connection(connection_table* table) {
+    connection_table* entry = table;
+    http_connection* conn = entry->connection;
+    table = entry->next;
+    free(entry);
+    return conn;
+}
+
+void delete_table(connection_table* table) {
+    for (connection_table* next = table; table != NULL; next = table->next) {
+        free(next);
+    }
+}
+
+// Connection table of available connections
+connection_table* available_connections;
 
 // `http_connection::state` constants
 #define HTTP_REQUEST 0      // Request not sent yet
@@ -239,6 +282,8 @@ pthread_cond_t condvar;
 void* pong_thread(void* threadarg) {
     pthread_detach(pthread_self());
 
+    concurent_threads++;
+
     // Copy thread arguments onto our stack.
     pong_args pa = *((pong_args*) threadarg);
 
@@ -247,8 +292,35 @@ void* pong_thread(void* threadarg) {
              pa.x, pa.y);
 
     http_connection* conn = http_connect(pong_addr);
-    http_send_request(conn, url);
-    http_receive_response_headers(conn);
+
+    // Exponential backoff for each attempt
+    long long backoff = 1;
+
+    do {
+
+        // It it's not the first attempt...
+        if (backoff != 1) {
+            // ... indicate currently in loss period
+            loss_period = 1;
+            // ... close the previous connection 
+            http_close(conn);
+            // ... wait to retry (using exponential backoff)
+            usleep(backoff * 100000);
+            // ... retry the connection
+            conn = http_connect(pong_addr);
+        }
+
+        // No longer in loss period
+        loss_period = 0;
+
+        http_send_request(conn, url);
+        http_receive_response_headers(conn);
+
+        backoff *= 2;
+
+    } while (conn->state == HTTP_BROKEN && conn->status_code == -1);
+
+
     if (conn->status_code != 200)
         fprintf(stderr, "%.3f sec: warning: %d,%d: "
                 "server returned status %d (expected 200)\n",
@@ -263,6 +335,8 @@ void* pong_thread(void* threadarg) {
     }
 
     http_close(conn);
+
+    concurent_threads--;
 
     // signal the main thread to continue
     pthread_cond_signal(&condvar);
@@ -345,6 +419,7 @@ int main(int argc, char** argv) {
     // play game
     int x = 0, y = 0, dx = 1, dy = 1;
     char url[BUFSIZ];
+    
     while (1) {
         // create a new thread to handle the next position
         pong_args pa;
@@ -357,11 +432,17 @@ int main(int argc, char** argv) {
                     elapsed(), strerror(r));
             exit(1);
         }
+        
+    
 
-        // wait until that thread signals us to continue
-        pthread_mutex_lock(&mutex);
-        pthread_cond_wait(&condvar, &mutex);
-        pthread_mutex_unlock(&mutex);
+        // If we already have too many concurrent threads...
+        if (concurent_threads > MAX_THREADS - 2 || loss_period) {
+            // wait until that thread signals us to continue
+            pthread_mutex_lock(&mutex);
+            pthread_cond_wait(&condvar, &mutex);
+            pthread_mutex_unlock(&mutex);
+        }
+
 
         // update position
         x += dx;
