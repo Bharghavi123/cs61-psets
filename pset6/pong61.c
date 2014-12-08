@@ -21,7 +21,7 @@ static struct addrinfo* pong_addr;
 #define MAX_THREADS 30
 
 // concurrent threads
-int concurent_threads = 0;
+int concurrent_threads = 1;
 
 
 // indicate whether currently in loss period
@@ -135,6 +135,10 @@ http_connection* http_connect(const struct addrinfo* ai) {
         exit(1);
     }
 
+
+    // if there's a connection available in the table...use that connection
+    if ()
+
     // construct an http_connection object for this connection
     http_connection* conn =
         (http_connection*) malloc(sizeof(http_connection));
@@ -224,6 +228,7 @@ void http_receive_response_headers(http_connection* conn) {
                 conn->status_code, http_truncate_response(conn));
         exit(1);
     }
+
 }
 
 
@@ -282,8 +287,6 @@ pthread_cond_t condvar;
 void* pong_thread(void* threadarg) {
     pthread_detach(pthread_self());
 
-    concurent_threads++;
-
     // Copy thread arguments onto our stack.
     pong_args pa = *((pong_args*) threadarg);
 
@@ -302,6 +305,7 @@ void* pong_thread(void* threadarg) {
         if (backoff != 1) {
             // ... indicate currently in loss period
             loss_period = 1;
+            fprintf(stderr, "setting loss_period to 1\n");
             // ... close the previous connection 
             http_close(conn);
             // ... wait to retry (using exponential backoff)
@@ -310,16 +314,22 @@ void* pong_thread(void* threadarg) {
             conn = http_connect(pong_addr);
         }
 
-        // No longer in loss period
-        loss_period = 0;
-
         http_send_request(conn, url);
         http_receive_response_headers(conn);
 
         backoff *= 2;
 
-    } while (conn->state == HTTP_BROKEN && conn->status_code == -1);
+    } while (conn->state == HTTP_BROKEN || conn->status_code == -1);
 
+   
+    // No longer in loss period
+    loss_period = 0;
+
+     // signal the main thread to continue
+    pthread_cond_signal(&condvar); // MOVE TO RIGHT AFTER YOU RECEIVE RESPONSE HEADERS
+
+
+    fprintf(stderr, "setting loss_period to 0\n");
 
     if (conn->status_code != 200)
         fprintf(stderr, "%.3f sec: warning: %d,%d: "
@@ -336,10 +346,8 @@ void* pong_thread(void* threadarg) {
 
     http_close(conn);
 
-    concurent_threads--;
-
-    // signal the main thread to continue
-    pthread_cond_signal(&condvar);
+    concurrent_threads--;
+    
     // and exit!
     pthread_exit(NULL);
 }
@@ -426,23 +434,38 @@ int main(int argc, char** argv) {
         pa.x = x;
         pa.y = y;
         pthread_t pt;
+
+        concurrent_threads++;
+        fprintf(stderr, "starting new thread\n");
+
+        // if (concurrent_threads >= MAX_THREADS || loss_period) {
+        //     // wait until that thread signals us to continue
+        //     pthread_mutex_lock(&mutex);
+        //     pthread_cond_wait(&condvar, &mutex);
+        //     pthread_mutex_unlock(&mutex);
+            
+        // }
+
+        loss_period = 1;
+
         r = pthread_create(&pt, NULL, pong_thread, &pa);
+
         if (r != 0) {
             fprintf(stderr, "%.3f sec: pthread_create: %s\n",
                     elapsed(), strerror(r));
             exit(1);
         }
         
-    
-
         // If we already have too many concurrent threads...
-        if (concurent_threads > MAX_THREADS - 2 || loss_period) {
-            // wait until that thread signals us to continue
-            pthread_mutex_lock(&mutex);
-            pthread_cond_wait(&condvar, &mutex);
-            pthread_mutex_unlock(&mutex);
-        }
 
+        pthread_mutex_lock(&mutex);
+        while (concurrent_threads >= MAX_THREADS || loss_period) {
+            // wait until that thread signals us to continue
+            pthread_cond_wait(&condvar, &mutex);
+        }
+        pthread_mutex_unlock(&mutex);
+        assert(concurrent_threads < MAX_THREADS && !loss_period);
+        fprintf(stderr, "checked loss_period and moved on\n");
 
         // update position
         x += dx;
