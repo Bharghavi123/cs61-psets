@@ -20,9 +20,11 @@ static struct addrinfo* pong_addr;
 // Maximum number of concurrent threads
 #define MAX_THREADS 30
 
+// Maximum number of concurrent connections
+#define MAX_CONNS 5
+
 // concurrent threads
 int concurrent_threads = 1;
-
 
 // indicate whether currently in loss period
 int loss_period = 0;
@@ -63,6 +65,10 @@ struct http_connection {
     size_t len;             // Length of response buffer
 };
 
+// connnection counter
+int nconnections = 0;
+
+
 // connection_table
 //      This object represents available connections
 typedef struct connection_table connection_table;
@@ -74,13 +80,16 @@ struct connection_table
 };
 
 void insert_connection(connection_table* table, http_connection* conn) {
+    nconnections++;
     connection_table* entry = malloc(sizeof(connection_table));
     entry->connection = conn;
     entry->next = table;
     table = entry;
+    fprintf(stderr, "insert_connection\n");
 }
 
 http_connection* remove_connection(connection_table* table) {
+    nconnections--;
     connection_table* entry = table;
     http_connection* conn = entry->connection;
     table = entry->next;
@@ -95,7 +104,11 @@ void delete_table(connection_table* table) {
 }
 
 // Connection table of available connections
-connection_table* available_connections;
+connection_table* available_connections = NULL;
+
+pthread_mutex_t mutex;
+pthread_cond_t condvar;
+
 
 // `http_connection::state` constants
 #define HTTP_REQUEST 0      // Request not sent yet
@@ -135,14 +148,21 @@ http_connection* http_connect(const struct addrinfo* ai) {
         exit(1);
     }
 
-
-    // if there's a connection available in the table...use that connection
-    if ()
-
     // construct an http_connection object for this connection
-    http_connection* conn =
-        (http_connection*) malloc(sizeof(http_connection));
-    conn->fd = fd;
+    // if there's a connection available in the table...use that connection
+    // http_connection* conn = available_connections ? remove_connection(available_connections) : (http_connection*) malloc(sizeof(http_connection));
+    http_connection* conn;
+    if (available_connections != NULL){
+        fprintf(stderr, "Inside here!\n");
+        pthread_mutex_lock(&mutex);
+        conn = remove_connection(available_connections);
+        pthread_mutex_unlock(&mutex);
+
+    }
+    else {
+        conn = (http_connection*) malloc(sizeof(http_connection));
+    }
+    conn->fd = fd; 
     conn->state = HTTP_REQUEST;
     conn->eof = 0;
     return conn;
@@ -153,7 +173,19 @@ http_connection* http_connect(const struct addrinfo* ai) {
 //    Close the HTTP connection `conn` and free its resources.
 void http_close(http_connection* conn) {
     close(conn->fd);
-    free(conn);
+
+    if (conn->state == HTTP_DONE){
+
+        // connection is now available - add to table of connections
+        pthread_mutex_lock(&mutex);
+        insert_connection(available_connections, conn); 
+        fprintf(stderr, "Number of connections: %d\n", nconnections);
+        pthread_mutex_unlock(&mutex);
+
+    }
+    else{
+        free(conn);
+    }
 }
 
 
@@ -278,9 +310,6 @@ typedef struct pong_args {
     int y;
 } pong_args;
 
-pthread_mutex_t mutex;
-pthread_cond_t condvar;
-
 // pong_thread(threadarg)
 //    Connect to the server at the position indicated by `threadarg`
 //    (which is a pointer to a `pong_args` structure).
@@ -293,6 +322,16 @@ void* pong_thread(void* threadarg) {
     char url[256];
     snprintf(url, sizeof(url), "move?x=%d&y=%d&style=on",
              pa.x, pa.y);
+
+
+
+    pthread_mutex_lock(&mutex);
+    while (nconnections > 5) {
+        fprintf(stderr, "aghgghghg\n");
+        // wait until that thread signls us to continue
+        pthread_cond_wait(&condvar, &mutex);
+    }
+    pthread_mutex_unlock(&mutex);
 
     http_connection* conn = http_connect(pong_addr);
 
@@ -460,6 +499,7 @@ int main(int argc, char** argv) {
 
         pthread_mutex_lock(&mutex);
         while (concurrent_threads >= MAX_THREADS || loss_period) {
+            fprintf(stderr, "we are STUCK\n");
             // wait until that thread signals us to continue
             pthread_cond_wait(&condvar, &mutex);
         }
@@ -531,6 +571,7 @@ static int http_check_response_body(http_connection* conn) {
         && (conn->has_content_length || conn->eof)
         && conn->len >= conn->content_length)
         conn->state = HTTP_DONE;
+
     if (conn->eof && conn->state == HTTP_DONE)
         conn->state = HTTP_CLOSED;
     else if (conn->eof)
