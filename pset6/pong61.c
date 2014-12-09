@@ -29,6 +29,9 @@ int concurrent_threads = 1;
 // indicate whether currently in loss period
 int loss_period = 0;
 
+// Flag stop
+int stop = 0;
+
 // TIME HELPERS
 double elapsed_base = 0;
 
@@ -321,7 +324,7 @@ void* pong_thread(void* threadarg) {
         if (backoff != 1) {
             // ... indicate currently in loss period
             loss_period = 1;
-            fprintf(stderr, "setting loss_period to 1\n");
+            // fprintf(stderr, "setting loss_period to 1\n");
             // ... close the previous connection 
             http_close(conn);
             // ... wait to retry (using exponential backoff)
@@ -330,7 +333,7 @@ void* pong_thread(void* threadarg) {
             pthread_mutex_lock(&mutex);
             if (available_connections != NULL) {
                 conn = remove_connection(&available_connections);
-                fprintf(stderr, "remove_connection: %d\n", nconnections);
+                // fprintf(stderr, "remove_connection: %d\n", nconnections);
             }
             else {
                 conn = http_connect(pong_addr);
@@ -362,6 +365,13 @@ void* pong_thread(void* threadarg) {
 
     http_receive_response_body(conn);
     double result = strtod(conn->buf, NULL);
+    pthread_mutex_lock(&mutex);
+    if (result > 0 && stop == 0) {
+        usleep(result * 1000);
+        stop = 1;
+    }
+    pthread_mutex_unlock(&mutex);
+
     if (result < 0) {
         fprintf(stderr, "%.3f sec: server returned error: %s\n",
                 elapsed(), http_truncate_response(conn));
@@ -473,6 +483,7 @@ int main(int argc, char** argv) {
         pthread_t pt;
         // fprintf(stderr, "starting new thread\n");
 
+        stop = 0;
         loss_period = 1;
 
         r = pthread_create(&pt, NULL, pong_thread, &pa);
