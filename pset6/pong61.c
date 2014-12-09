@@ -151,17 +151,18 @@ http_connection* http_connect(const struct addrinfo* ai) {
     // construct an http_connection object for this connection
     // if there's a connection available in the table...use that connection
     // http_connection* conn = available_connections ? remove_connection(available_connections) : (http_connection*) malloc(sizeof(http_connection));
-    http_connection* conn;
-    if (available_connections != NULL){
-        fprintf(stderr, "Inside here!\n");
-        pthread_mutex_lock(&mutex);
-        conn = remove_connection(available_connections);
-        pthread_mutex_unlock(&mutex);
+    // http_connection* conn;
+    // if (available_connections != NULL){
+    //     fprintf(stderr, "Inside here!\n");
+    //     pthread_mutex_lock(&mutex);
+    //     conn = remove_connection(available_connections);
+    //     pthread_mutex_unlock(&mutex);
 
-    }
-    else {
-        conn = (http_connection*) malloc(sizeof(http_connection));
-    }
+    // }
+    // else {
+    //     conn = (http_connection*) malloc(sizeof(http_connection));
+    // }
+    http_connection* conn = malloc(sizeof(http_connection));
     conn->fd = fd; 
     conn->state = HTTP_REQUEST;
     conn->eof = 0;
@@ -173,19 +174,7 @@ http_connection* http_connect(const struct addrinfo* ai) {
 //    Close the HTTP connection `conn` and free its resources.
 void http_close(http_connection* conn) {
     close(conn->fd);
-
-    if (conn->state == HTTP_DONE){
-
-        // connection is now available - add to table of connections
-        pthread_mutex_lock(&mutex);
-        insert_connection(available_connections, conn); 
-        fprintf(stderr, "Number of connections: %d\n", nconnections);
-        pthread_mutex_unlock(&mutex);
-
-    }
-    else{
-        free(conn);
-    }
+    free(conn);
 }
 
 
@@ -325,15 +314,25 @@ void* pong_thread(void* threadarg) {
 
 
 
+    
+    // while (nconnections > 5) {
+    //     fprintf(stderr, "aghgghghg\n");
+    //     // wait until that thread signls us to continue
+    //     pthread_cond_wait(&condvar, &mutex);
+    // }
+
+    http_connection* conn;
     pthread_mutex_lock(&mutex);
-    while (nconnections > 5) {
-        fprintf(stderr, "aghgghghg\n");
-        // wait until that thread signls us to continue
-        pthread_cond_wait(&condvar, &mutex);
+
+
+    if (available_connections != NULL) {
+        conn = remove_connection(available_connections);
+    }
+    else {
+        conn = http_connect(pong_addr);
     }
     pthread_mutex_unlock(&mutex);
 
-    http_connection* conn = http_connect(pong_addr);
 
     // Exponential backoff for each attempt
     long long backoff = 1;
@@ -383,10 +382,23 @@ void* pong_thread(void* threadarg) {
         exit(1);
     }
 
-    http_close(conn);
+    pthread_mutex_lock(&mutex);
 
-    concurrent_threads--;
+    if (conn->state == HTTP_DONE) {
+        insert_connection(available_connections, conn);
+    }
+    else {
+        http_close(conn);
+    }
+
+    pthread_mutex_unlock(&mutex);
+
+
     
+
+    pthread_mutex_lock(&mutex);
+    concurrent_threads--;
+    pthread_mutex_unlock(&mutex);
     // and exit!
     pthread_exit(NULL);
 }
@@ -473,8 +485,9 @@ int main(int argc, char** argv) {
         pa.x = x;
         pa.y = y;
         pthread_t pt;
-
+        pthread_mutex_lock(&mutex);
         concurrent_threads++;
+        pthread_mutex_unlock(&mutex);
         fprintf(stderr, "starting new thread\n");
 
         // if (concurrent_threads >= MAX_THREADS || loss_period) {
@@ -498,12 +511,14 @@ int main(int argc, char** argv) {
         // If we already have too many concurrent threads...
 
         pthread_mutex_lock(&mutex);
+
         while (concurrent_threads >= MAX_THREADS || loss_period) {
-            fprintf(stderr, "we are STUCK\n");
+            // fprintf(stderr, "we are STUCK\n");
             // wait until that thread signals us to continue
             pthread_cond_wait(&condvar, &mutex);
         }
         pthread_mutex_unlock(&mutex);
+
         assert(concurrent_threads < MAX_THREADS && !loss_period);
         fprintf(stderr, "checked loss_period and moved on\n");
 
