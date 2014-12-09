@@ -79,17 +79,17 @@ struct connection_table
 
 };
 
-void insert_connection(connection_table* table, http_connection* conn) {
+connection_table* insert_connection(connection_table* table, http_connection* conn) {
     nconnections++;
     connection_table* entry = malloc(sizeof(connection_table));
     entry->connection = conn;
     entry->next = table;
-    table = entry;
-    fprintf(stderr, "insert_connection\n");
+    return entry;
 }
 
 http_connection* remove_connection(connection_table* table) {
     nconnections--;
+    assert(table != NULL);
     connection_table* entry = table;
     http_connection* conn = entry->connection;
     table = entry->next;
@@ -312,21 +312,11 @@ void* pong_thread(void* threadarg) {
     snprintf(url, sizeof(url), "move?x=%d&y=%d&style=on",
              pa.x, pa.y);
 
-
-
-    
-    // while (nconnections > 5) {
-    //     fprintf(stderr, "aghgghghg\n");
-    //     // wait until that thread signls us to continue
-    //     pthread_cond_wait(&condvar, &mutex);
-    // }
-
     http_connection* conn;
     pthread_mutex_lock(&mutex);
-
-
-    if (available_connections != NULL) {
+    if (nconnections) {
         conn = remove_connection(available_connections);
+        fprintf(stderr, "remove_connection: %d\n", nconnections);
     }
     else {
         conn = http_connect(pong_addr);
@@ -349,7 +339,15 @@ void* pong_thread(void* threadarg) {
             // ... wait to retry (using exponential backoff)
             usleep(backoff * 100000);
             // ... retry the connection
-            conn = http_connect(pong_addr);
+            pthread_mutex_lock(&mutex);
+            if (available_connections != NULL) {
+                conn = remove_connection(available_connections);
+                fprintf(stderr, "remove_connection: %d\n", nconnections);
+            }
+            else {
+                conn = http_connect(pong_addr);
+            }
+            pthread_mutex_unlock(&mutex);
         }
 
         http_send_request(conn, url);
@@ -385,20 +383,20 @@ void* pong_thread(void* threadarg) {
     pthread_mutex_lock(&mutex);
 
     if (conn->state == HTTP_DONE) {
-        insert_connection(available_connections, conn);
+        available_connections = insert_connection(available_connections, conn);
+        fprintf(stderr, "insert_connection: %d\n", nconnections);
+        assert(available_connections != NULL);
+        pthread_cond_signal(&condvar);
     }
     else {
         http_close(conn);
+        concurrent_threads--;
     }
 
     pthread_mutex_unlock(&mutex);
 
 
     
-
-    pthread_mutex_lock(&mutex);
-    concurrent_threads--;
-    pthread_mutex_unlock(&mutex);
     // and exit!
     pthread_exit(NULL);
 }
@@ -511,15 +509,15 @@ int main(int argc, char** argv) {
         // If we already have too many concurrent threads...
 
         pthread_mutex_lock(&mutex);
-
-        while (concurrent_threads >= MAX_THREADS || loss_period) {
-            // fprintf(stderr, "we are STUCK\n");
+        fprintf(stderr, "concurrent_threads: %d\n", concurrent_threads);
+        fprintf(stderr, "nconnections: %d\n", nconnections);
+        while ((concurrent_threads >= MAX_THREADS && !nconnections) || loss_period) {
             // wait until that thread signals us to continue
             pthread_cond_wait(&condvar, &mutex);
         }
         pthread_mutex_unlock(&mutex);
 
-        assert(concurrent_threads < MAX_THREADS && !loss_period);
+        //assert(concurrent_threads < MAX_THREADS && !loss_period);
         fprintf(stderr, "checked loss_period and moved on\n");
 
         // update position
