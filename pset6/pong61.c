@@ -174,7 +174,7 @@ void http_send_request(http_connection* conn, const char* uri) {
     assert(conn->state == HTTP_REQUEST || conn->state == HTTP_DONE);
 
     // prepare and write the request
-    char reqbuf[BUFSIZ];
+    char reqbuf[BUFSIZ * 5];
     size_t reqsz = sprintf(reqbuf,
                            "POST /%s/%s HTTP/1.0\r\n"
                            "Host: %s\r\n"
@@ -220,7 +220,7 @@ void http_receive_response_headers(http_connection* conn) {
     // read & parse data until told `http_process_response_headers`
     // tells us to stop
     while (http_process_response_headers(conn)) {
-        ssize_t nr = read(conn->fd, &conn->buf[conn->len], BUFSIZ);
+        ssize_t nr = read(conn->fd, &conn->buf[conn->len], BUFSIZ * 5);
         if (nr == 0)
             conn->eof = 1;
         else if (nr == -1 && errno != EINTR && errno != EAGAIN) {
@@ -253,7 +253,7 @@ void http_receive_response_body(http_connection* conn) {
 
     // read response body (http_check_response_body tells us when to stop)
     while (http_check_response_body(conn)) {
-        ssize_t nr = read(conn->fd, &conn->buf[conn->len], BUFSIZ);
+        ssize_t nr = read(conn->fd, &conn->buf[conn->len], BUFSIZ * 5);
         if (nr == 0)
             conn->eof = 1;
         else if (nr == -1 && errno != EINTR && errno != EAGAIN) {
@@ -473,7 +473,7 @@ int main(int argc, char** argv) {
 
     // play game
     int x = 0, y = 0, dx = 1, dy = 1;
-    char url[BUFSIZ];
+    char url[BUFSIZ * 5];
     
     while (1) {
         // create a new thread to handle the next position
